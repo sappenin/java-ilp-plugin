@@ -1,5 +1,8 @@
 package org.interledger.plugin.lpiv2;
 
+import org.interledger.plugin.lpiv2.support.Wrapped;
+import org.interledger.plugin.lpiv2.support.Wrapper;
+
 import org.immutables.value.Value;
 
 /**

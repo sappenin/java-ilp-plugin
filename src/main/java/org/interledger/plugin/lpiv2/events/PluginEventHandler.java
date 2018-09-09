@@ -1,4 +1,4 @@
-package org.interledger.plugin.lpiv2.handlers;
+package org.interledger.plugin.lpiv2.events;
 
 import org.interledger.plugin.lpiv2.Plugin;
 import org.interledger.plugin.lpiv2.events.PluginConnectedEvent;

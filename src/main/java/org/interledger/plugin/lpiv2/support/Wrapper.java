@@ -1,4 +1,4 @@
-package org.interledger.plugin.lpiv2;
+package org.interledger.plugin.lpiv2.support;
 
 import org.immutables.value.Value;
 

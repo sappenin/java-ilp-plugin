@@ -1,8 +1,4 @@
-package org.interledger.plugin.lpiv2.handlers;
-
-import org.interledger.plugin.lpiv2.events.PluginConnectedEvent;
-import org.interledger.plugin.lpiv2.events.PluginDisconnectedEvent;
-import org.interledger.plugin.lpiv2.events.PluginErrorEvent;
+package org.interledger.plugin.lpiv2.events;
 
 /**
  * An abstract implementation of {@link PluginEventHandler} that no-ops all methods except those relating to {@link

@@ -8,7 +8,9 @@ import org.interledger.plugin.lpiv2.events.ImmutablePluginDisconnectedEvent;
 import org.interledger.plugin.lpiv2.events.PluginConnectedEvent;
 import org.interledger.plugin.lpiv2.events.PluginDisconnectedEvent;
 import org.interledger.plugin.lpiv2.events.PluginErrorEvent;
-import org.interledger.plugin.lpiv2.handlers.PluginEventHandler;
+import org.interledger.plugin.lpiv2.events.PluginEventEmitter;
+import org.interledger.plugin.lpiv2.events.PluginEventHandler;
+import org.interledger.plugin.lpiv2.support.Completions;
 
 import com.google.common.collect.Maps;
 import org.slf4j.Logger;
@@ -214,6 +216,27 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
    * Perform the logic of settling with a remote peer.
    */
   protected abstract void doSettle(BigInteger amount);
+
+
+  /**
+   * Handle a request to settle an outstanding balance.
+   *
+   * @param amount The amount of "money" to transfer.
+   */
+  @Override
+  public CompletableFuture<Void> handleIncomingSettle(BigInteger amount) {
+    Objects.requireNonNull(amount);
+    logger.info("[{}] handleIncomingSettle {} units via {}!",
+        this.pluginSettings.pluginTypeId(), amount, pluginSettings.peerAccount()
+    );
+    // Handles checked and unchecked exceptions properly.
+    return Completions.supplyAsync(() -> this.doHandleIncomingSettle(amount)).toCompletableFuture();
+  }
+
+  /**
+   * Perform the logic of handling an incoming settlement from a remote peer.
+   */
+  protected abstract void doHandleIncomingSettle(BigInteger amount);
 
   /**
    * An example {@link PluginEventEmitter} that allows events to be synchronously emitted into a {@link Plugin}.

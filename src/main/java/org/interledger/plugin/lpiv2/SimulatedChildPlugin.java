@@ -89,7 +89,18 @@ public class SimulatedChildPlugin extends AbstractPlugin<PluginSettings> impleme
 
   @Override
   public CompletableFuture<Void> handleIncomingSettle(BigInteger amount) {
-    throw new RuntimeException("Not yet implemented!");
+    // No-op.
+    return CompletableFuture.completedFuture(null);
+  }
+
+  /**
+   * Perform the logic of handling an incoming settlement from a remote peer.
+   *
+   * @param amount
+   */
+  @Override
+  protected void doHandleIncomingSettle(BigInteger amount) {
+    // No-op.
   }
 
   @Override

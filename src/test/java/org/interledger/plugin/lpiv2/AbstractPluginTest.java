@@ -13,7 +13,7 @@ import org.interledger.core.InterledgerFulfillPacket;
 import org.interledger.core.InterledgerPreparePacket;
 import org.interledger.core.InterledgerProtocolException;
 import org.interledger.plugin.lpiv2.TestHelpers.ExtendedPluginSettings;
-import org.interledger.plugin.lpiv2.handlers.PluginEventHandler;
+import org.interledger.plugin.lpiv2.events.PluginEventHandler;
 
 import ch.qos.logback.classic.Level;
 import org.junit.Before;
@@ -50,6 +50,11 @@ public class AbstractPluginTest {
       @Override
       public CompletableFuture<Void> handleIncomingSettle(BigInteger amount) {
         return null;
+      }
+
+      @Override
+      protected void doHandleIncomingSettle(BigInteger amount) {
+
       }
 
       @Override

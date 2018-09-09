@@ -3,7 +3,7 @@ package org.interledger.plugin.lpiv2;
 import org.interledger.core.InterledgerFulfillPacket;
 import org.interledger.core.InterledgerPreparePacket;
 import org.interledger.core.InterledgerProtocolException;
-import org.interledger.plugin.lpiv2.handlers.PluginEventHandler;
+import org.interledger.plugin.lpiv2.events.PluginEventHandler;
 
 import java.math.BigInteger;
 import java.util.UUID;

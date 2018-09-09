@@ -1,4 +1,4 @@
-package org.interledger.plugin.lpiv2;
+package org.interledger.plugin.lpiv2.support;
 
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
