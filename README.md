@@ -54,7 +54,7 @@ Any contribution is very much appreciated!
 [![gitter][gitter-image]][gitter-url]
 
 ## TODO
-See the issues here: [https://github.com/sappenin/java-ilp-plugin/issues](https://github.com/interledger/java-ilp-plugin/issues).
+See the issues here: [https://github.com/sappenin/java-ilp-plugin/issues](https://github.com/sappenin/java-ilp-plugin/issues).
 
 ## License
 This code is released under the Apache 2.0 License. Please see [LICENSE](LICENSE) for the full text.

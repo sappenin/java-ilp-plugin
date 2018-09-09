@@ -13,7 +13,7 @@
   <description>Java implementation of the Plugin Interface (LPI) v2 defined at
     https://github.com/interledger/rfcs/blob/master/0024-ledger-plugin-interface-2/0024-ledger-plugin-interface-2.md
   </description>
-  <url>http://github.com/interledger/java-ilp-plugin</url>
+  <url>http://github.com/sappenin/java-ilp-plugin</url>
   <inceptionYear>2017</inceptionYear>
 
   <licenses>
@@ -32,11 +32,11 @@
   </developers>
 
   <scm>
-    <connection>scm:git:git://github.com/interledger/java-ilp-plugin.git
+    <connection>scm:git:git://github.com/sappenin/java-ilp-plugin.git
     </connection>
-    <developerConnection>scm:git:git@github.com:interledger/java-ilp-plugin.git
+    <developerConnection>scm:git:git@github.com:sappenin/java-ilp-plugin.git
     </developerConnection>
-    <url>https://github.com/interledger/java-ilp-plugin</url>
+    <url>https://github.com/sappenin/java-ilp-plugin</url>
   </scm>
 
   <properties>
