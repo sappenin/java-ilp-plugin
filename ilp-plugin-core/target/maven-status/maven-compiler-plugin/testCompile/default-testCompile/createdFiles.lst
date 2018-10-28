@@ -1,0 +1,9 @@
+org/interledger/plugin/lpiv2/ImmutableExtendedPluginSettings.class
+org/interledger/plugin/lpiv2/SimulatedChildPluginTest.class
+org/interledger/plugin/lpiv2/AbstractPluginTest$1.class
+org/interledger/plugin/lpiv2/TestHelpers.class
+org/interledger/plugin/lpiv2/TestHelpers$1.class
+org/interledger/plugin/lpiv2/TestHelpers$ExtendedPluginSettings.class
+org/interledger/plugin/lpiv2/ImmutableExtendedPluginSettings$1.class
+org/interledger/plugin/lpiv2/ImmutableExtendedPluginSettings$Builder.class
+org/interledger/plugin/lpiv2/AbstractPluginTest.class
