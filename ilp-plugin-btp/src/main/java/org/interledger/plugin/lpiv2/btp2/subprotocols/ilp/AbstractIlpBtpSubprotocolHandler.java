@@ -1,15 +1,21 @@
 package org.interledger.plugin.lpiv2.btp2.subprotocols.ilp;
 
+import org.interledger.btp.BtpError;
 import org.interledger.btp.BtpMessage;
 import org.interledger.btp.BtpResponse;
+import org.interledger.btp.BtpRuntimeException;
 import org.interledger.btp.BtpSession;
 import org.interledger.btp.BtpSubProtocol;
 import org.interledger.btp.BtpSubProtocols;
+import org.interledger.btp.BtpTransfer;
 import org.interledger.core.InterledgerAddress;
 import org.interledger.core.InterledgerPacket;
 import org.interledger.core.InterledgerProtocolException;
 import org.interledger.encoding.asn.framework.CodecContext;
 import org.interledger.plugin.lpiv2.btp2.subprotocols.AbstractBtpSubProtocolHandler;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -17,8 +23,6 @@ import java.io.IOException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * An extension of {@link AbstractBtpSubProtocolHandler} for handling incoming <tt>ILP</tt> sub-protocol messages
@@ -27,7 +31,8 @@ import java.util.logging.Logger;
  */
 public abstract class AbstractIlpBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
 
-  private final Logger logger = Logger.getLogger(this.getClass().getName());
+  protected final Logger logger = LoggerFactory.getLogger(this.getClass().getName());
+
   private final CodecContext ilpCodecContext;
 
   /**
@@ -101,19 +106,19 @@ public abstract class AbstractIlpBtpSubprotocolHandler extends AbstractBtpSubPro
    *
    * @throws InterledgerProtocolException if the request is rejected by the peer.
    */
-  public abstract CompletableFuture<Optional<InterledgerPacket>> onIlpPacket(
+  public abstract CompletableFuture<Optional<InterledgerPacket>> handleIlpPacketSubprotocolData(
       final InterledgerAddress sourceAccountId, final InterledgerPacket ilpPacket
   ) throws InterledgerProtocolException;
 
   @Override
-  public CompletableFuture<Optional<BtpSubProtocol>> handleBinarySubprotocolMessage(
+  public CompletableFuture<Optional<BtpSubProtocol>> handleSubprotocolDataForBtpMessage(
       final BtpSession btpSession, final BtpMessage btpMessage
   ) {
     Objects.requireNonNull(btpSession, "btpSession must not be null!");
     Objects.requireNonNull(btpMessage, "btpMessage must not be null!");
 
-    if (logger.isLoggable(Level.FINE)) {
-      logger.log(Level.FINE, "Handling BTP Message: %s", btpMessage);
+    if (logger.isDebugEnabled()) {
+      logger.debug("Incoming ILP Subprotocol BtpMessage: {}", btpMessage);
     }
 
     // TODO: Check for authentication. If not authenticated, then throw an exception! The Auth sub-protocol should
@@ -132,11 +137,15 @@ public abstract class AbstractIlpBtpSubprotocolHandler extends AbstractBtpSubPro
       final InterledgerAddress sourceAccountId = btpSession.getPeerAccountAddress();
 
       // Handle the BTP sub-protocol as an ILP Packet...
-      return this.onIlpPacket(sourceAccountId, incomingIlpPacket)
+      return this.handleIlpPacketSubprotocolData(sourceAccountId, incomingIlpPacket)
           // and convert back to BTP...
-          .thenApply(packet -> packet.map(p -> AbstractIlpBtpSubprotocolHandler.toBtpSubprotocol(p, ilpCodecContext))
-              .orElseThrow(() -> new RuntimeException("Not packet found!")))
-          .thenApply(Optional::of);
+          .thenApply(
+              packet -> packet
+                  .map(p -> AbstractIlpBtpSubprotocolHandler.toBtpSubprotocol(p, ilpCodecContext))
+                  // If there's no packet, then return null so no response is returned...
+                  .orElse(null)
+          )
+          .thenApply(Optional::ofNullable);
 
     } catch (IOException e) {
       // Per RFC-23, ILP packets are attached under the protocol name "toBtpSubprotocol" with content-type
@@ -152,4 +161,40 @@ public abstract class AbstractIlpBtpSubprotocolHandler extends AbstractBtpSubPro
     }
   }
 
+  @Override
+  public CompletableFuture<Optional<BtpSubProtocol>> handleSubprotocolDataForBtpTransfer(
+      final BtpSession btpSession, final BtpTransfer incomingBtpTransfer
+  ) throws BtpRuntimeException {
+    Objects.requireNonNull(btpSession);
+    Objects.requireNonNull(incomingBtpTransfer);
+
+    logger.debug("Incoming ILP Subprotocol BtpTransfer: {}", incomingBtpTransfer);
+
+    return CompletableFuture.completedFuture(Optional.empty());
+  }
+
+  @Override
+  public CompletableFuture<Void> handleSubprotocolDataForBtpResponse(
+      final BtpSession btpSession, final BtpResponse incomingBtpResponse
+  ) throws BtpRuntimeException {
+
+    Objects.requireNonNull(btpSession);
+    Objects.requireNonNull(incomingBtpResponse);
+
+    logger.debug("Incoming ILP Subprotocol BtpResponse: {}", incomingBtpResponse);
+    return CompletableFuture.completedFuture(null);
+  }
+
+
+  @Override
+  public CompletableFuture<Void> handleSubprotocolDataForBtpError(
+      final BtpSession btpSession, final BtpError incomingBtpError
+  ) throws BtpRuntimeException {
+
+    Objects.requireNonNull(btpSession);
+    Objects.requireNonNull(incomingBtpError);
+
+    logger.error("Incoming ILP Subprotocol BtpError: {}", incomingBtpError);
+    return CompletableFuture.completedFuture(null);
+  }
 }

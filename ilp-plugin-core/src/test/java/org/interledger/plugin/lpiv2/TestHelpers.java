@@ -1,8 +1,12 @@
 package org.interledger.plugin.lpiv2;
 
 import org.interledger.core.InterledgerAddress;
+import org.interledger.core.InterledgerErrorCode;
+import org.interledger.core.InterledgerFulfillPacket;
 import org.interledger.core.InterledgerFulfillment;
+import org.interledger.core.InterledgerRejectPacket;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
 import org.immutables.value.Value.Immutable;
 
@@ -15,7 +19,6 @@ public class TestHelpers {
 
   public static final byte[] PREIMAGE = "Roads? Where we're going we dont".getBytes();
   public static final InterledgerFulfillment FULFILLMENT = InterledgerFulfillment.of(PREIMAGE);
-
   public static final byte[] ALTERNATE_PREIMAGE = "11inquagintaquadringentilliard11".getBytes();
   public static final InterledgerFulfillment ALTERNATE_FULFILLMENT = InterledgerFulfillment.of(ALTERNATE_PREIMAGE);
 
@@ -62,6 +65,34 @@ public class TestHelpers {
   }
 
   /**
+   * Helper method to return the fulfill packet that is used by this simulated plugin.
+   *
+   * @return
+   */
+  @VisibleForTesting
+  public static final InterledgerFulfillPacket getSendDataFulfillPacket() {
+    return InterledgerFulfillPacket.builder()
+        .fulfillment(FULFILLMENT)
+        .data(new byte[32])
+        .build();
+  }
+
+  /**
+   * Helper method to return the rejection packet that is used by this simulated plugin.
+   *
+   * @return
+   */
+  @VisibleForTesting
+  public static final InterledgerRejectPacket getSendDataRejectPacket() {
+    return InterledgerRejectPacket.builder()
+        .triggeredBy(PEER_ACCOUNT)
+        .code(InterledgerErrorCode.F00_BAD_REQUEST)
+        .message("Handle SendData failed!")
+        .data(new byte[32])
+        .build();
+  }
+
+  /**
    * An example of how to configure custom, though typed, configuration for a plugin.
    */
   @Immutable
@@ -72,5 +103,4 @@ public class TestHelpers {
      */
     String getPassword();
   }
-
 }

@@ -15,7 +15,7 @@
     <module>ilp-plugin-btp-springws</module>
   </modules>
 
-  <name>ILP Plugin Interface V2 (Java)</name>
+  <name>ILP Plugin Interface V2</name>
   <description>Java implementation of the Plugin Interface (LPI) v2 defined at
     https://github.com/interledger/rfcs/blob/master/0024-ledger-plugin-interface-2/0024-ledger-plugin-interface-2.md
   </description>
@@ -127,7 +127,16 @@
         <artifactId>codec-framework</artifactId>
         <version>${ilp-core.version}</version>
       </dependency>
-
+      <dependency>
+        <groupId>org.interledger</groupId>
+        <artifactId>ilp-core-codecs</artifactId>
+        <version>${ilp-core.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.interledger</groupId>
+        <artifactId>btp-core-codecs</artifactId>
+        <version>${ilp-core.version}</version>
+      </dependency>
       <dependency>
         <groupId>org.springframework</groupId>
         <artifactId>spring-websocket</artifactId>

@@ -1,19 +1,19 @@
 package org.interledger.plugin.lpiv2;
 
-import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
 import static org.interledger.plugin.lpiv2.SimulatedChildPlugin.ILP_DATA;
-import static org.interledger.plugin.lpiv2.TestHelpers.PREIMAGE;
+import static org.junit.Assert.fail;
 
 import org.interledger.core.InterledgerAddress;
-import org.interledger.core.InterledgerCondition;
 import org.interledger.core.InterledgerErrorCode;
 import org.interledger.core.InterledgerFulfillPacket;
 import org.interledger.core.InterledgerFulfillment;
 import org.interledger.core.InterledgerPreparePacket;
 import org.interledger.core.InterledgerProtocolException;
-import org.interledger.core.InterledgerRuntimeException;
+import org.interledger.core.InterledgerRejectPacket;
+import org.interledger.core.InterledgerResponsePacket;
+import org.interledger.core.InterledgerResponsePacketHandler;
 
 import ch.qos.logback.classic.Level;
 import org.junit.Before;
@@ -25,13 +25,19 @@ import org.slf4j.LoggerFactory;
 import java.math.BigInteger;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
 /**
  * A unit test for {@link SimulatedChildPlugin} to ensure that it is functioning properly.
  */
 public class SimulatedChildPluginTest {
+
+  private static final InterledgerPreparePacket PREPARE_PACKET = InterledgerPreparePacket.builder()
+      .executionCondition(SimulatedChildPlugin.CONDITION)
+      .expiresAt(Instant.now().plus(30, ChronoUnit.SECONDS))
+      .destination(InterledgerAddress.of("test.foo"))
+      .amount(BigInteger.TEN)
+      .build();
 
   private SimulatedChildPlugin simulatedChildPlugin;
 
@@ -49,43 +55,48 @@ public class SimulatedChildPluginTest {
   @Test
   public void testSendDataThenFulfill() throws ExecutionException, InterruptedException {
     simulatedChildPlugin.simulatedCompleteSuccessfully(true);
-    final InterledgerFulfillPacket actual = this.simulatedChildPlugin.sendData(
-        InterledgerPreparePacket.builder()
-            .executionCondition(InterledgerCondition.of(PREIMAGE))
-            .expiresAt(Instant.now().plus(5, ChronoUnit.SECONDS))
-            .destination(InterledgerAddress.of("test1.foo"))
-            .amount(BigInteger.ZERO)
-            .build()
-    ).get();
 
-    assertThat(actual.getFulfillment().getPreimage(), is(SimulatedChildPlugin.PREIMAGE));
-    assertThat(actual.getFulfillment().getCondition(),
-        is(InterledgerFulfillment.of(SimulatedChildPlugin.PREIMAGE).getCondition()));
-    assertThat(actual.getData(), is(ILP_DATA));
+    final InterledgerResponsePacket responsePacket = this.simulatedChildPlugin.sendData(PREPARE_PACKET).get();
+
+    new InterledgerResponsePacketHandler() {
+      @Override
+      protected void mapFulfillPacket(InterledgerFulfillPacket interledgerFulfillPacket) {
+        assertThat(responsePacket instanceof InterledgerFulfillPacket, is(true));
+        InterledgerFulfillPacket actualFulfillPacket = (InterledgerFulfillPacket) responsePacket;
+        assertThat(actualFulfillPacket.getFulfillment().getPreimage(), is(SimulatedChildPlugin.PREIMAGE));
+        assertThat(actualFulfillPacket.getFulfillment().getCondition(),
+            is(InterledgerFulfillment.of(SimulatedChildPlugin.PREIMAGE).getCondition()));
+        assertThat(responsePacket.getData(), is(ILP_DATA));
+      }
+
+      @Override
+      protected void mapRejectPacket(InterledgerRejectPacket interledgerRejectPacket) {
+        throw new RuntimeException("Should not reject!");
+      }
+    }.map(responsePacket);
+
   }
 
-  @Test(expected = InterledgerProtocolException.class)
-  public void testSendDataThenReject() throws InterruptedException {
+  @Test
+  public void testSendDataThenReject() {
     simulatedChildPlugin.simulatedCompleteSuccessfully(false);
 
-    try {
-      this.simulatedChildPlugin.sendData(
-          InterledgerPreparePacket.builder()
-              .executionCondition(InterledgerCondition.of(PREIMAGE))
-              .expiresAt(Instant.now().plus(5, ChronoUnit.SECONDS))
-              .destination(InterledgerAddress.of("test1.foo"))
-              .amount(BigInteger.ZERO)
-              .build()
-      ).get();
-    } catch (ExecutionException e) {
-      final InterledgerProtocolException ilpe = (InterledgerProtocolException) e.getCause();
-      assertThat(ilpe.getInterledgerRejectPacket().getCode(), is(InterledgerErrorCode.F00_BAD_REQUEST));
-      assertThat(ilpe.getInterledgerRejectPacket().getTriggeredBy(),
-          is(simulatedChildPlugin.getPluginSettings().getPeerAccountAddress()));
-      assertThat(ilpe.getInterledgerRejectPacket().getMessage(), is("SendData failed!"));
-      assertThat(ilpe.getMessage(), is("Interledger Rejection: SendData failed!"));
-      throw ilpe;
-    }
+    final InterledgerResponsePacket responsePacket = this.simulatedChildPlugin.sendData(PREPARE_PACKET).join();
+
+    new InterledgerResponsePacketHandler() {
+      @Override
+      protected void mapFulfillPacket(InterledgerFulfillPacket interledgerFulfillPacket) {
+        throw new RuntimeException("Should not Fulfill!");
+      }
+
+      @Override
+      protected void mapRejectPacket(InterledgerRejectPacket interledgerRejectPacket) {
+        assertThat(interledgerRejectPacket.getCode(), is(InterledgerErrorCode.F00_BAD_REQUEST));
+        assertThat(interledgerRejectPacket.getTriggeredBy(),
+            is(simulatedChildPlugin.getPluginSettings().getPeerAccountAddress()));
+        assertThat(interledgerRejectPacket.getMessage(), is("SendData failed!"));
+      }
+    }.map(responsePacket);
   }
 
   @Test
@@ -100,6 +111,7 @@ public class SimulatedChildPluginTest {
 
     try {
       this.simulatedChildPlugin.sendMoney(BigInteger.ZERO).get();
+      fail();
     } catch (ExecutionException e) {
       final InterledgerProtocolException ilpe = (InterledgerProtocolException) e.getCause();
       assertThat(ilpe.getInterledgerRejectPacket().getCode(), is(InterledgerErrorCode.F00_BAD_REQUEST));
@@ -119,44 +131,39 @@ public class SimulatedChildPluginTest {
    * Simulate an incoming Prepare packet, and assert that the handler is properly called.
    */
   @Test
-  public void testIncomingData() throws ExecutionException, InterruptedException {
-    final InterledgerPreparePacket packet = InterledgerPreparePacket.builder()
-        .executionCondition(InterledgerCondition.of(PREIMAGE))
-        .expiresAt(Instant.now().plus(5, ChronoUnit.SECONDS))
-        .destination(InterledgerAddress.of("test1.foo"))
-        .amount(BigInteger.ZERO)
-        .build();
+  public void testIncomingData() {
+    final InterledgerResponsePacket result = simulatedChildPlugin.getDataHandler()
+        .handleIncomingData(InterledgerAddress.of("test.alice"), PREPARE_PACKET).join();
 
-    final CompletableFuture<InterledgerFulfillPacket> result = simulatedChildPlugin
-        .onIncomingData(InterledgerAddress.of("test.alice"), packet);
-
-    assertThat(result.isDone(), is(false));
-    assertThat(result.get(), is(simulatedChildPlugin.getFulfillPacket()));
-    assertThat(result.isDone(), is(true));
+    assertThat(result, is(simulatedChildPlugin.getSendDataFulfillPacket()));
   }
 
   /**
    * Simulate an incoming Prepare packet, and assert that the handler is properly called.
    */
-  @Test(expected = InterledgerRuntimeException.class)
-  public void testIncomingDataRejection() throws InterruptedException {
+  @Test
+  public void testIncomingDataRejection() {
     this.simulatedChildPlugin.simulatedCompleteSuccessfully(false);
 
-    final InterledgerPreparePacket packet = InterledgerPreparePacket.builder()
-        .executionCondition(InterledgerCondition.of(PREIMAGE))
-        .expiresAt(Instant.now().plus(5, ChronoUnit.SECONDS))
-        .destination(InterledgerAddress.of("test1.foo"))
-        .amount(BigInteger.ZERO)
-        .build();
+    final InterledgerResponsePacket responsePacket = simulatedChildPlugin.getDataHandler()
+        .handleIncomingData(InterledgerAddress.of("test.alice"), PREPARE_PACKET)
+        .join();
 
-    try {
-      simulatedChildPlugin.onIncomingData(InterledgerAddress.of("test.alice"), packet).get();
-    } catch (ExecutionException e) {
-      assertThat(e.getCause() instanceof InterledgerRuntimeException, is(true));
-      InterledgerRuntimeException ire = (InterledgerRuntimeException) e.getCause();
-      assertThat(ire.getMessage(), is("Interledger Rejection: Handle SendData failed!"));
-      throw ire;
-    }
+    new InterledgerResponsePacketHandler() {
+      @Override
+      protected void mapFulfillPacket(InterledgerFulfillPacket interledgerFulfillPacket) {
+        throw new RuntimeException("Should not Fulfill!");
+      }
+
+      @Override
+      protected void mapRejectPacket(InterledgerRejectPacket interledgerRejectPacket) {
+        assertThat(interledgerRejectPacket.getCode(), is(InterledgerErrorCode.F00_BAD_REQUEST));
+        assertThat(interledgerRejectPacket.getTriggeredBy(),
+            is(simulatedChildPlugin.getPluginSettings().getPeerAccountAddress()));
+        assertThat(interledgerRejectPacket.getMessage(), is("Handle SendData failed!"));
+      }
+    }.map(responsePacket);
+
   }
 
   /**
@@ -164,34 +171,23 @@ public class SimulatedChildPluginTest {
    */
   @Test
   public void testIncomingMoney() throws ExecutionException, InterruptedException {
-    final CompletableFuture<Void> result = simulatedChildPlugin.onIncomingMoney(BigInteger.ZERO);
-
-    assertThat(result.isDone(), is(false));
-    assertThat(result.get(), is(nullValue()));
-    assertThat(result.isDone(), is(true));
+    // TODO: Add more tests here...
+    simulatedChildPlugin.getMoneyHandler().handleIncomingMoney(BigInteger.ZERO).get();
   }
 
   /**
    * Simulate an incoming Prepare packet, and assert that the handler is properly called.
    */
-  @Test(expected = InterledgerRuntimeException.class)
-  public void testIncomingMoneyRejection() throws InterruptedException {
+  @Test(expected = RuntimeException.class)
+  public void testIncomingMoneyRejection() {
     this.simulatedChildPlugin.simulatedCompleteSuccessfully(false);
 
-    final InterledgerPreparePacket packet = InterledgerPreparePacket.builder()
-        .executionCondition(InterledgerCondition.of(PREIMAGE))
-        .expiresAt(Instant.now().plus(5, ChronoUnit.SECONDS))
-        .destination(InterledgerAddress.of("test1.foo"))
-        .amount(BigInteger.ZERO)
-        .build();
-
     try {
-      simulatedChildPlugin.onIncomingMoney(BigInteger.ZERO).get();
-    } catch (ExecutionException e) {
-      assertThat(e.getCause() instanceof InterledgerRuntimeException, is(true));
-      InterledgerRuntimeException ire = (InterledgerRuntimeException) e.getCause();
-      assertThat(ire.getMessage(), is("Interledger Rejection: Handle SendMoney failed!"));
-      throw ire;
+      simulatedChildPlugin.getMoneyHandler().handleIncomingMoney(BigInteger.ZERO).join();
+      fail();
+    } catch (Exception e) {
+      assertThat(e.getMessage(), is("sendMoney failed!"));
+      throw e;
     }
   }
 

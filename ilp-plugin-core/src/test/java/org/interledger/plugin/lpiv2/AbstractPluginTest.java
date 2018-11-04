@@ -4,14 +4,14 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
 import static org.interledger.plugin.lpiv2.Plugin.CONNECTED;
 import static org.interledger.plugin.lpiv2.Plugin.NOT_CONNECTED;
-import static org.interledger.plugin.lpiv2.TestHelpers.LOCAL_NODE_ADDRESS;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.verifyZeroInteractions;
 
-import org.interledger.core.InterledgerFulfillPacket;
 import org.interledger.core.InterledgerPreparePacket;
 import org.interledger.core.InterledgerProtocolException;
+import org.interledger.core.InterledgerResponsePacket;
 import org.interledger.plugin.lpiv2.TestHelpers.ExtendedPluginSettings;
 import org.interledger.plugin.lpiv2.events.PluginEventHandler;
 
@@ -19,7 +19,6 @@ import ch.qos.logback.classic.Level;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,51 +62,33 @@ public class AbstractPluginTest {
       }
 
       @Override
-      public CompletableFuture<InterledgerFulfillPacket> doSendData(InterledgerPreparePacket preparePacket)
+      public CompletableFuture<InterledgerResponsePacket> doSendData(InterledgerPreparePacket preparePacket)
           throws InterledgerProtocolException {
         return null;
       }
     };
     this.abstractPlugin.addPluginEventHandler(pluginEventHandlerMock);
+
+    this.abstractPlugin.registerDataHandler(((sourceAccountAddress, sourcePreparePacket) ->
+        CompletableFuture.supplyAsync(() -> TestHelpers.getSendDataFulfillPacket())
+    ));
+    this.abstractPlugin.registerMoneyHandler((amount -> CompletableFuture.supplyAsync(() -> null)));
   }
 
   @Test
-  public void testGetConnectorAccount_Disconnected() {
-    this.abstractPlugin.disconnect();
-    assertThat(abstractPlugin.isConnected(), is(NOT_CONNECTED));
-    verify(pluginEventHandlerMock).onDisconnect(any());
-    verifyNoMoreInteractions(pluginEventHandlerMock);
-  }
-
-  @Test
-  public void testGetConnectorAccount_Connected() {
-    this.abstractPlugin.connect();
-    verify(pluginEventHandlerMock).onConnect(any());
-    assertThat(abstractPlugin.isConnected(), is(CONNECTED));
-    assertThat(this.abstractPlugin.getPluginSettings().getLocalNodeAddress(), is(LOCAL_NODE_ADDRESS));
-    verifyNoMoreInteractions(pluginEventHandlerMock);
-  }
-
-  @Test
-  public void testConnect() {
-    // The test connects the plugin to the ledger by default, so disconnect first.
-    this.abstractPlugin.disconnect();
-    Mockito.reset(pluginEventHandlerMock);
-
-    this.abstractPlugin.connect();
-    assertThat(abstractPlugin.isConnected(), is(CONNECTED));
-    verify(pluginEventHandlerMock).onConnect(any());
-
-    verify(pluginEventHandlerMock).onConnect(any());
-    verifyNoMoreInteractions(pluginEventHandlerMock);
-  }
-
-  @Test
-  public void testDisconnect() {
+  public void testDisconnectAndConnect() {
     // The test connects the plugin by default, so no need to call it again here...
-    this.abstractPlugin.disconnect();
+    this.abstractPlugin.disconnect().join();
     assertThat(abstractPlugin.isConnected(), is(NOT_CONNECTED));
+    verifyZeroInteractions(pluginEventHandlerMock);
 
+    this.abstractPlugin.connect().join();
+    assertThat(abstractPlugin.isConnected(), is(CONNECTED));
+    verify(pluginEventHandlerMock).onConnect(any());
+    verifyNoMoreInteractions(pluginEventHandlerMock);
+
+    this.abstractPlugin.disconnect().join();
+    assertThat(abstractPlugin.isConnected(), is(NOT_CONNECTED));
     verify(pluginEventHandlerMock).onDisconnect(any());
     verifyNoMoreInteractions(pluginEventHandlerMock);
   }

@@ -12,7 +12,6 @@ import org.interledger.btp.BtpRuntimeException;
 import org.interledger.btp.BtpSession;
 import org.interledger.btp.BtpSubProtocol;
 import org.interledger.btp.BtpSubProtocols;
-import org.interledger.btp.BtpTransfer;
 import org.interledger.core.InterledgerErrorCode;
 import org.interledger.core.InterledgerFulfillPacket;
 import org.interledger.core.InterledgerPreparePacket;
@@ -86,22 +85,6 @@ public abstract class AbstractBtpPlugin<S extends BtpPluginSettings> extends Abs
     //this.pendingResponses = Maps.newConcurrentMap();
   }
 
-  public BtpResponse onIncomingBtpError(final BtpSession btpSession, final BtpError btpError)
-      throws BtpRuntimeException {
-    throw new RuntimeException("Not yet implemented!");
-  }
-
-  public BtpResponse onIncomingBtpTransfer(final BtpSession btpSession, final BtpTransfer btpTransfer)
-      throws BtpRuntimeException {
-    throw new RuntimeException("Not yet implemented!");
-  }
-
-  // TODO: Void?
-  public BtpResponse onIncomingBtpResponse(final BtpSession btpSession, final BtpResponse btpResponse)
-      throws BtpRuntimeException {
-    throw new RuntimeException("Not yet implemented!");
-  }
-
   /**
    * <p>Handles an incoming {@link BtpMessage} by delegating it to a registered handler.</p>
    *
@@ -139,7 +122,8 @@ public abstract class AbstractBtpPlugin<S extends BtpPluginSettings> extends Abs
       // provide additional contextual data which can be consumed in a readonly way (without affecting the result).
       final BtpSubProtocol primarySubprotocol = incomingBtpMessage.getPrimarySubProtocol();
       final AbstractBtpSubProtocolHandler handler =
-          this.btpSubProtocolHandlerRegistry.getHandler(primarySubprotocol.getProtocolName())
+          this.btpSubProtocolHandlerRegistry
+              .getHandler(primarySubprotocol.getProtocolName(), primarySubprotocol.getContentType())
               .orElseThrow(() -> new BtpRuntimeException(
                   BtpErrorCode.F00_NotAcceptedError,
                   String.format("No BTP Handler registered for BTP SubProtocol: %s",
@@ -149,34 +133,10 @@ public abstract class AbstractBtpPlugin<S extends BtpPluginSettings> extends Abs
       final CompletableFuture<Optional<BtpSubProtocol>> btpSubProtocolResponse = handler
           .handleSubprotocolMessage(btpSession, incomingBtpMessage);
 
-
-      // TODO: Perhaps resurect this code if a Plugin will handle both binary and JSON, as an example. Hunch is that no sub-protocol does that,
-      // so it's probably not worth doing.
-
-//      switch (primarySubprotocol.getContentType()) {
-//        case MIME_TEXT_PLAIN_UTF8: {
-//          btpSubProtocolResponse = handler.handleTextSubprotocolMessage(btpSession, incomingBtpMessage);
-//          break;
-//        }
-//
-//        case MIME_APPLICATION_JSON: {
-//          btpSubProtocolResponse = handler.handleJsonSubprotocolMessage(btpSession, incomingBtpMessage);
-//          break;
-//        }
-//
-//        case MIME_APPLICATION_OCTET_STREAM:
-//        default: {
-//          btpSubProtocolResponse = handler.handleBinarySubprotocolMessage(btpSession, incomingBtpMessage);
-//          break;
-//        }
-//      }
-
       // Add the response, but only if it's present.
       btpSubProtocolResponse.get().ifPresent(responses::add);
 
-      ////////////////////////
       // Now that there's a proper response, send it back to the connected client...
-      ////////////////////////
       return BtpResponse.builder()
           .requestId(incomingBtpMessage.getRequestId())
           .subProtocols(responses)
@@ -274,36 +234,6 @@ public abstract class AbstractBtpPlugin<S extends BtpPluginSettings> extends Abs
   protected CodecContext getBtpCodecContext() {
     return btpCodecContext;
   }
-
-  //  /**
-  //   * This method is only ever called by the {@link AbstractIlpBtpSubprotocolHandler} as part of the BTP Websock machinery.
-  //   */
-  //  @Override
-  //  public final CompletableFuture<InterledgerFulfillPacket> handleIncomingPacket(final InterledgerPreparePacket preparePacket)
-  //    throws InterledgerProtocolException {
-  //
-  //    Objects.requireNonNull(preparePacket);
-  //
-  //    if (logger.isDebugEnabled()) {
-  //      logger.debug("Handling InterledgerPreparePacket from {}", this.getAccountAddress());
-  //    }
-  //
-  //    //    final Account sourceAccount = this.accountManager.getAccount(session.getAccountId())
-  //    //      .orElseThrow(() -> new RuntimeException(
-  //    //        String.format("No Account found for Interledger Address: %s", session.getAccountId()))
-  //    //      );
-  //
-  //    // If local...
-  //
-  //
-  //    // else, forward...
-  //
-  //    // TODO: Grab the proper lpi2 here from the routing table..
-  //    Plugin plugin = null;
-  //
-  //    // TODO: Adjust the packet, if needed (expiry, amount, etc?)
-  //    return plugin.sendPacket(preparePacket);
-  //  }
 
   /**
    * Perform the logic of settling with a remote peer.
@@ -417,6 +347,10 @@ public abstract class AbstractBtpPlugin<S extends BtpPluginSettings> extends Abs
         .errorCode(btpErrorCode)
         .errorData(errorData.getBytes(Charset.forName("UTF-8")))
         .build();
+  }
+
+  public BtpSubProtocolHandlerRegistry getBtpSubProtocolHandlerRegistry() {
+    return btpSubProtocolHandlerRegistry;
   }
 
 //  /**

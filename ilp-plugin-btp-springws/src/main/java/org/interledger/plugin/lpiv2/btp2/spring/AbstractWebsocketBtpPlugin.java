@@ -6,7 +6,7 @@ import org.interledger.btp.BtpError;
 import org.interledger.btp.BtpErrorCode;
 import org.interledger.btp.BtpMessage;
 import org.interledger.btp.BtpPacket;
-import org.interledger.btp.BtpPacketHandler;
+import org.interledger.btp.BtpPacketMapper;
 import org.interledger.btp.BtpResponse;
 import org.interledger.btp.BtpRuntimeException;
 import org.interledger.btp.BtpSession;
@@ -48,6 +48,9 @@ import java.util.concurrent.locks.LockSupport;
  */
 public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> extends AbstractBtpPlugin<S> {
 
+  // TODO: Make this inherited. Better to know the concrete handler that emitted this as opposed to this abstract class
+  // because if we know the concrete class, we can investigate from there, but if there are multiple different implementations
+  // of this abstract class, we won't know which one is having trouble.
   private static final Logger LOGGER = LoggerFactory.getLogger(AbstractWebsocketBtpPlugin.class);
   protected final BinaryMessageToBtpPacketConverter binaryMessageToBtpPacketConverter;
   protected final BtpPacketToBinaryMessageConverter btpPacketToBinaryMessageConverter;
@@ -116,160 +119,168 @@ public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> ex
       return Optional.empty();
     }
 
-    // If incomingBtpMessage is a BTPResponse, we need to connect it to a pending sendData. If this is a
-    // BtpMessage, we can simply handle it...
-    return new BtpPacketHandler<Optional<BinaryMessage>>() {
-      @Override
-      protected Optional<BinaryMessage> handleBtpMessage(final BtpMessage incomingBtpMessage) {
-        Objects.requireNonNull(incomingBtpMessage);
-        LOGGER.trace("incomingBtpMessage: {}", incomingBtpMessage);
+    try {
+      // If incomingBtpMessage is a BTPResponse, we need to connect it to a pending sendData. If this is a
+      // BtpMessage, we can simply handle it...
+      return new BtpPacketMapper<Optional<BinaryMessage>>() {
+        @Override
+        protected Optional<BinaryMessage> mapBtpMessage(final BtpMessage incomingBtpMessage) {
+          Objects.requireNonNull(incomingBtpMessage);
+          LOGGER.trace("incomingBtpMessage: {}", incomingBtpMessage);
 
-        // If incomingBtpMessage is a BtpMessage...?
-        final BtpResponse btpResponse = onIncomingBtpMessage(btpSession, incomingBtpMessage);
-        return Optional.of(btpPacketToBinaryMessageConverter.convert(btpResponse));
-      }
+          // If incomingBtpMessage is a BtpMessage...?
+          final BtpResponse btpResponse = onIncomingBtpMessage(btpSession, incomingBtpMessage);
+          return Optional.of(btpPacketToBinaryMessageConverter.convert(btpResponse));
+        }
 
-      @Override
-      protected Optional<BinaryMessage> handleBtpTransfer(final BtpTransfer incomingBtpTransfer) {
-        Objects.requireNonNull(incomingBtpTransfer);
-        LOGGER.trace("incomingBtpMessage: {}", incomingBtpTransfer);
-        throw new RuntimeException("Not yet implemented!");
-      }
+        @Override
+        protected Optional<BinaryMessage> mapBtpTransfer(final BtpTransfer incomingBtpTransfer) {
+          Objects.requireNonNull(incomingBtpTransfer);
+          LOGGER.trace("incomingBtpMessage: {}", incomingBtpTransfer);
+          throw new RuntimeException("Not yet implemented!");
+        }
 
-      @Override
-      protected Optional<BinaryMessage> handleBtpError(BtpError incomingBtpError) {
-        Objects.requireNonNull(incomingBtpError);
+        @Override
+        protected Optional<BinaryMessage> mapBtpError(BtpError incomingBtpError) {
+          Objects.requireNonNull(incomingBtpError);
 
-        LOGGER.error("Incoming BtpError from `{}` with message `{}`",
-            btpSession.getPeerAccountAddress(),
-            new String(incomingBtpError.getErrorData())
-        );
+          LOGGER.error("Incoming BtpError from `{}` with message `{}`",
+              btpSession.getPeerAccountAddress(),
+              new String(incomingBtpError.getErrorData())
+          );
 
-        // The incoming message was a BtpError, so don't return a response to the peer.
-        return Optional.empty();
-      }
-
-      @Override
-      protected Optional<BinaryMessage> handleBtpResponse(final BtpResponse incomingBtpResponse) {
-        Objects.requireNonNull(incomingBtpResponse);
-
-        LOGGER.trace("IncomingBtpResponse: {} ", incomingBtpResponse);
-
-        // Generally, BTP always returns a response to the caller, even under error conditions. There are two
-        // exceptions, however, listed as "tricky cases" in the BTP specification:
-        //
-        // 1. An unexpected BTP packet is received
-        // 2. An unreadable BTP packet is received
-        //
-        // If the packet was unreadable, then this method will have never been called, so we can ignore this
-        // case here. However, if an unexpected packet is encountered, we need to emit this error, but then return
-        // null to the caller of this method so that no response is returned to the BTP peer.
-
-        final CompletableFuture<BtpResponse> pendingResponse = pendingResponses.get(incomingBtpResponse.getRequestId());
-
-        // If there's a pending response, then connect the incoming response to the pending response. If there is no
-        // pending response, it means that
-
-        if (pendingResponse == null) {
-
-          //Should we call onIncomingBtpResponse here?
-
-          //LOGGER.error("No PendingResponse available to connect to incomingBtpResponse: {}", incomingBtpResponse);
+          // The incoming message was a BtpError, so don't return a response to the peer.
           return Optional.empty();
-        } else {
-          try {
-            // The pendingResponse has been previously returned to a caller, who is waiting for it to be completed or
-            // to timeout. So, if such a thing exists (getting here implies that it does exist), then we need to
-            // complete the pendingResponse with the value found in `incomingBtpResponse`.
+        }
 
-            // TODO: Try acceptEither instead (http://www.deadcoderising
-            // .com/java8-writing-asynchronous-code-with-completablefuture/)
+        @Override
+        protected Optional<BinaryMessage> mapBtpResponse(final BtpResponse incomingBtpResponse) {
+          Objects.requireNonNull(incomingBtpResponse);
 
-            final Object result = anyOf(pendingResponse, CompletableFuture.completedFuture(incomingBtpResponse))
-                .handle((response, error) -> {
-                  /////////////////
-                  // The Exception case..
-                  if (error != null) {
-                    if (error instanceof BtpRuntimeException) {
-                      final BtpRuntimeException btpRuntimeException = (BtpRuntimeException) error;
-                      final BtpError btpError = constructBtpError(
-                          incomingBtpPacket.getRequestId(), btpRuntimeException.getMessage(),
-                          btpRuntimeException.getTriggeredAt(), btpRuntimeException.getCode()
-                      );
-                      return Optional.of(btpPacketToBinaryMessageConverter.convert(btpError));
-                    } else {
-                      // There was an error processing, so return a BtpError response back to the waiting caller.
-                      final BtpError btpError = constructBtpError(
-                          incomingBtpPacket.getRequestId(), error.getMessage(), Instant.now(),
-                          BtpErrorCode.T00_UnreachableError
-                      );
-                      return Optional.of(btpPacketToBinaryMessageConverter.convert(btpError));
+          LOGGER.trace("IncomingBtpResponse: {} ", incomingBtpResponse);
+
+          // Generally, BTP always returns a response to the caller, even under error conditions. There are two
+          // exceptions, however, listed as "tricky cases" in the BTP specification:
+          //
+          // 1. An unexpected BTP packet is received
+          // 2. An unreadable BTP packet is received
+          //
+          // If the packet was unreadable, then this method will have never been called, so we can ignore this
+          // case here. However, if an unexpected packet is encountered, we need to emit this error, but then return
+          // null to the caller of this method so that no response is returned to the BTP peer.
+
+          final CompletableFuture<BtpResponse> pendingResponse = pendingResponses
+              .get(incomingBtpResponse.getRequestId());
+
+          // If there's a pending response, then connect the incoming response to the pending response. If there is no
+          // pending response, it means that
+
+          if (pendingResponse == null) {
+
+            //Should we call onIncomingBtpResponse here?
+
+            //LOGGER.error("No PendingResponse available to connect to incomingBtpResponse: {}", incomingBtpResponse);
+            return Optional.empty();
+          } else {
+            try {
+              // The pendingResponse has been previously returned to a caller, who is waiting for it to be completed or
+              // to timeout. So, if such a thing exists (getting here implies that it does exist), then we need to
+              // complete the pendingResponse with the value found in `incomingBtpResponse`.
+
+              // TODO: Try acceptEither instead (http://www.deadcoderising
+              // .com/java8-writing-asynchronous-code-with-completablefuture/)
+
+              final Object result = anyOf(pendingResponse, CompletableFuture.completedFuture(incomingBtpResponse))
+                  .handle((response, error) -> {
+                    /////////////////
+                    // The Exception case..
+                    if (error != null) {
+                      if (error instanceof BtpRuntimeException) {
+                        final BtpRuntimeException btpRuntimeException = (BtpRuntimeException) error;
+                        final BtpError btpError = constructBtpError(
+                            incomingBtpPacket.getRequestId(), btpRuntimeException.getMessage(),
+                            btpRuntimeException.getTriggeredAt(), btpRuntimeException.getCode()
+                        );
+                        return Optional.of(btpPacketToBinaryMessageConverter.convert(btpError));
+                      } else {
+                        // There was an error processing, so return a BtpError response back to the waiting caller.
+                        final BtpError btpError = constructBtpError(
+                            incomingBtpPacket.getRequestId(), error.getMessage(), Instant.now(),
+                            BtpErrorCode.T00_UnreachableError
+                        );
+                        return Optional.of(btpPacketToBinaryMessageConverter.convert(btpError));
+                      }
                     }
-                  }
-                  /////////////////
-                  // The Happy Path...
-                  else {
-                    // Getting here means that there is a response to be handled, so connect it to the pendingResponse.
+                    /////////////////
+                    // The Happy Path...
+                    else {
+                      // Getting here means that there is a response to be handled, so connect it to the pendingResponse.
 
-                    // TODO: FIXME!
-                    BtpSessionCredentials btpSessionCredentials = ImmutableBtpSessionCredentials.builder()
-                        .authToken(btpSession.getPeerAccountAddress().getValue()).build();
-                    btpSession.setValidAuthentication(btpSessionCredentials);
+                      // TODO: FIXME!
+                      BtpSessionCredentials btpSessionCredentials = ImmutableBtpSessionCredentials.builder()
+                          .authToken(btpSession.getPeerAccountAddress().getValue()).build();
+                      btpSession.setValidAuthentication(btpSessionCredentials);
 
-                    pendingResponse.complete(incomingBtpResponse);
+                      pendingResponse.complete(incomingBtpResponse);
 
-                    //final BtpResponse btpResponse = (BtpResponse) btpResponseToConnectAsObject;
-                    //return btpPacketToBinaryMessageConverter.convert(btpResponse);
-                    return (BinaryMessage) null;
-                  }
+                      //final BtpResponse btpResponse = (BtpResponse) btpResponseToConnectAsObject;
+                      //return btpPacketToBinaryMessageConverter.convert(btpResponse);
+                      return (BinaryMessage) null;
+                    }
 
-                }).get();
+                  }).get();
 
-            // Convert to BinaryMessage since anyOf uses Object...
-            return Optional.ofNullable((BinaryMessage) result);
+              // Convert to BinaryMessage since anyOf uses Object...
+              return Optional.ofNullable((BinaryMessage) result);
 
-            //               .exceptionally(ex -> {
-            //                  if (ex instanceof BtpRuntimeException) {
-            //                    final BtpRuntimeException btpRuntimeException = (BtpRuntimeException) ex;
-            //                    final BtpError btpError = constructBtpError(
-            //                      incomingBtpPacket.getRequestId(), btpRuntimeException.getMessage(),
-            //                      btpRuntimeException.getTriggeredAt(), btpRuntimeException.getCode()
-            //                    );
-            //                    return Optional.of(btpPacketToBinaryMessageConverter.convert(btpError));
-            //                  } else {
-            //                    // There was an error processing, so return a BtpError response back to the waiting caller.
-            //                    final BtpError btpError = constructBtpError(
-            //                      incomingBtpPacket.getRequestId(), ex.getMessage(), Instant.now(),
-            //                      BtpErrorCode.T00_UnreachableError
-            //                    );
-            //                    return Optional.of(btpPacketToBinaryMessageConverter.convert(btpError));
-            //                  }
-            //                })
-            //                .thenApply((btpResponseToConnectAsObject) -> {
-            //                  // Getting here means that
-            //
-            //                  // Client: Create a BTPSession (maybe handle in the registry?)
-            //                  BtpSessionCredentials btpSessionCredentials = ImmutableBtpSessionCredentials.builder()
-            //                    .name(btpSession.getPeerAccountAddress().getValue()).build();
-            //                  btpSession.setValidAuthentication(btpSessionCredentials);
-            //
-            //                  //final BtpResponse btpResponse = (BtpResponse) btpResponseToConnectAsObject;
-            //                  //return btpPacketToBinaryMessageConverter.convert(btpResponse);
-            //                  return (BinaryMessage) null;
-            //                })
-            //                .get()
-            // );
+              //               .exceptionally(ex -> {
+              //                  if (ex instanceof BtpRuntimeException) {
+              //                    final BtpRuntimeException btpRuntimeException = (BtpRuntimeException) ex;
+              //                    final BtpError btpError = constructBtpError(
+              //                      incomingBtpPacket.getRequestId(), btpRuntimeException.getMessage(),
+              //                      btpRuntimeException.getTriggeredAt(), btpRuntimeException.getCode()
+              //                    );
+              //                    return Optional.of(btpPacketToBinaryMessageConverter.convert(btpError));
+              //                  } else {
+              //                    // There was an error processing, so return a BtpError response back to the waiting caller.
+              //                    final BtpError btpError = constructBtpError(
+              //                      incomingBtpPacket.getRequestId(), ex.getMessage(), Instant.now(),
+              //                      BtpErrorCode.T00_UnreachableError
+              //                    );
+              //                    return Optional.of(btpPacketToBinaryMessageConverter.convert(btpError));
+              //                  }
+              //                })
+              //                .thenApply((btpResponseToConnectAsObject) -> {
+              //                  // Getting here means that
+              //
+              //                  // Client: Create a BTPSession (maybe handle in the registry?)
+              //                  BtpSessionCredentials btpSessionCredentials = ImmutableBtpSessionCredentials.builder()
+              //                    .name(btpSession.getPeerAccountAddress().getValue()).build();
+              //                  btpSession.setValidAuthentication(btpSessionCredentials);
+              //
+              //                  //final BtpResponse btpResponse = (BtpResponse) btpResponseToConnectAsObject;
+              //                  //return btpPacketToBinaryMessageConverter.convert(btpResponse);
+              //                  return (BinaryMessage) null;
+              //                })
+              //                .get()
+              // );
 
-          } catch (CompletionException | InterruptedException | ExecutionException e) {
-            if (e.getCause() instanceof BtpRuntimeException) {
-              throw (BtpRuntimeException) e.getCause();
-            } else {
-              throw new RuntimeException(e);
+            } catch (CompletionException | InterruptedException | ExecutionException e) {
+              if (e.getCause() instanceof BtpRuntimeException) {
+                throw (BtpRuntimeException) e.getCause();
+              } else {
+                throw new RuntimeException(e);
+              }
             }
           }
         }
-      }
-    }.handle(incomingBtpPacket);
+      }.map(incomingBtpPacket);
+    } catch (BtpRuntimeException e) {
+      LOGGER.error(e.getMessage(), e);
+      // If anything throws a BTP Exception, then return a BTP Error on the channel...
+      final BtpError btpError = e.toBtpError(incomingBtpPacket.getRequestId());
+      return Optional.ofNullable(btpPacketToBinaryMessageConverter.convert(btpError));
+    }
   }
 
   /**

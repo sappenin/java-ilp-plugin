@@ -8,26 +8,33 @@ import static org.interledger.plugin.lpiv2.btp2.subprotocols.BtpSubProtocolHandl
 import org.interledger.btp.BtpError;
 import org.interledger.btp.BtpErrorCode;
 import org.interledger.btp.BtpMessage;
+import org.interledger.btp.BtpResponse;
 import org.interledger.btp.BtpRuntimeException;
 import org.interledger.btp.BtpSession;
 import org.interledger.btp.BtpSessionCredentials;
 import org.interledger.btp.BtpSubProtocol;
 import org.interledger.btp.BtpSubProtocols;
+import org.interledger.btp.BtpTransfer;
 import org.interledger.btp.ImmutableBtpSessionCredentials;
 import org.interledger.plugin.lpiv2.btp2.subprotocols.AbstractBtpSubProtocolHandler;
 
 import com.google.common.base.Preconditions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * An extension of {@link AbstractBtpSubProtocolHandler} for handling the <tt>auth</tt> sub-protocol as defined in IL-RFC-23.
+ * An extension of {@link AbstractBtpSubProtocolHandler} for handling the <tt>auth</tt> sub-protocol as defined in
+ * IL-RFC-23.
  *
  * @see "https://github.com/interledger/rfcs/blob/master/0023-bilateral-transfer-protocol/0023-bilateral-transfer-protocol.md#authentication"
  */
 public class AuthBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(AuthBtpSubprotocolHandler.class);
 
   /**
    * Construct a {@link BtpSubProtocol} response for using the <tt>auth</tt> sub-protocol.
@@ -42,11 +49,13 @@ public class AuthBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
   }
 
   @Override
-  public CompletableFuture<Optional<BtpSubProtocol>> handleBinarySubprotocolMessage(
+  public CompletableFuture<Optional<BtpSubProtocol>> handleSubprotocolDataForBtpMessage(
       final BtpSession btpSession, final BtpMessage incomingBtpMessage
   ) throws BtpRuntimeException {
     Objects.requireNonNull(btpSession);
     Objects.requireNonNull(incomingBtpMessage);
+
+    LOGGER.debug("Incoming Auth Message: {}", incomingBtpMessage);
 
     try {
       // Before anything else, when a client connects to a server, it sends a special Message request. Its primary
@@ -72,7 +81,7 @@ public class AuthBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
       if (isValidAuthToken(auth_user, auth_token)) {
         this.storeAuthInBtpSession(btpSession, auth_user, auth_token);
         // SUCCESS! Respond with an empty Ack message...
-        return CompletableFuture.supplyAsync(() -> Optional.of(AuthAbstractBtpSubprotocolHandler.authResponse()))
+        return CompletableFuture.supplyAsync(() -> Optional.of(AuthBtpSubprotocolHandler.authResponse()))
             .toCompletableFuture();
       } else {
         throw new BtpRuntimeException(BtpErrorCode.F00_NotAcceptedError,
@@ -85,6 +94,48 @@ public class AuthBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
       throw new BtpRuntimeException(BtpErrorCode.F00_NotAcceptedError, e.getMessage(), e);
     }
   }
+
+
+  @Override
+  public CompletableFuture<Optional<BtpSubProtocol>> handleSubprotocolDataForBtpTransfer(
+      final BtpSession btpSession, final BtpTransfer incomingBtpTransfer
+  ) throws BtpRuntimeException {
+    Objects.requireNonNull(btpSession);
+    Objects.requireNonNull(incomingBtpTransfer);
+
+    LOGGER.debug("Incoming Auth Subprotocol BtpTransfer: {}", incomingBtpTransfer);
+
+    return CompletableFuture.completedFuture(Optional.empty());
+  }
+
+  @Override
+  public CompletableFuture<Void> handleSubprotocolDataForBtpResponse(
+      final BtpSession btpSession, final BtpResponse incomingBtpResponse
+  ) throws BtpRuntimeException {
+
+    Objects.requireNonNull(btpSession);
+    Objects.requireNonNull(incomingBtpResponse);
+
+    LOGGER.debug("Incoming Auth Subprotocol BtpResponse: {}", incomingBtpResponse);
+    return CompletableFuture.completedFuture(null);
+  }
+
+
+  @Override
+  public CompletableFuture<Void> handleSubprotocolDataForBtpError(
+      final BtpSession btpSession, final BtpError incomingBtpError
+  ) throws BtpRuntimeException {
+
+    Objects.requireNonNull(btpSession);
+    Objects.requireNonNull(incomingBtpError);
+
+    LOGGER.error("Incoming Auth Subprotocol BtpError: {}", incomingBtpError);
+    return CompletableFuture.completedFuture(null);
+  }
+
+  //////////////////
+  // Private Helpers
+  //////////////////
 
   /**
    * Checks to see if the provided <tt>incomingAuthToken</tt> matches the secret configured for this peer.

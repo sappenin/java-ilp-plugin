@@ -4,6 +4,7 @@ import org.interledger.core.InterledgerAddress;
 import org.interledger.core.InterledgerFulfillPacket;
 import org.interledger.core.InterledgerPreparePacket;
 import org.interledger.core.InterledgerProtocolException;
+import org.interledger.core.InterledgerResponsePacket;
 import org.interledger.plugin.lpiv2.events.PluginEventHandler;
 import org.interledger.plugin.lpiv2.exceptions.DataHandlerAlreadyRegisteredException;
 import org.interledger.plugin.lpiv2.exceptions.MoneyHandlerAlreadyRegisteredException;
@@ -11,7 +12,6 @@ import org.interledger.plugin.lpiv2.exceptions.MoneyHandlerAlreadyRegisteredExce
 import java.math.BigInteger;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Consumer;
 
 /**
  * <p>An abstraction for communicating with a remote Interledger peer using a single account.</p>
@@ -55,18 +55,29 @@ public interface Plugin<T extends PluginSettings> {
    */
   boolean isConnected();
 
+//  /**
+//   * Sends an ILP request packet to the peer and returns the response packet (this method correlates with
+//   * <tt>sendData</tt> in the Javascript connector).
+//   *
+//   * @param preparePacket The ILP packet to send to the peer.
+//   *
+//   * @return A {@link CompletableFuture} that resolves to the ILP response from the peer.
+//   *
+//   * @throws InterledgerProtocolException if the request is rejected by the peer.
+//   */
+  //CompletableFuture<InterledgerFulfillPacket> sendData(InterledgerPreparePacket preparePacket)
+  //    throws InterledgerProtocolException;
+
   /**
    * Sends an ILP request packet to the peer and returns the response packet (this method correlates with
    * <tt>sendData</tt> in the Javascript connector).
    *
-   * @param preparePacket The ILP packet to send to the peer.
+   * @param preparePacket An {@link InterledgerPreparePacket} to send to the remote peer.
    *
-   * @return A {@link CompletableFuture} that resolves to the ILP response from the peer.
-   *
-   * @throws InterledgerProtocolException if the request is rejected by the peer.
+   * @return A {@link CompletableFuture} that resolves to the ILP response from the peer as an instance of {@link
+   *     InterledgerResponsePacket}.
    */
-  CompletableFuture<InterledgerFulfillPacket> sendData(InterledgerPreparePacket preparePacket)
-      throws InterledgerProtocolException;
+  CompletableFuture<InterledgerResponsePacket> sendData(InterledgerPreparePacket preparePacket);
 
   /**
    * Settle an outstanding ILP balance with a counterparty by transferring {@code amount} units of value from this ILP
@@ -116,21 +127,22 @@ public interface Plugin<T extends PluginSettings> {
   void registerDataHandler(IlpDataHandler ilpDataHandler) throws DataHandlerAlreadyRegisteredException;
 
   /**
+   * Accessor for the currently registered {@link IlpDataHandler}. Throws a {@link RuntimeException} if no handler is
+   * registered, because callers should not be trying to access the handler if none is registered (in other words, a
+   * Plugin is not in a valid state until it has handlers registered).
+   *
+   * @return The currently registered {@link IlpDataHandler}.
+   *
+   * @throws {@link RuntimeException} if no handler is registered.
+   */
+  IlpDataHandler getDataHandler();
+
+  /**
    * Removes the currently used {@link IlpDataHandler}. This has the same effect as if {@link
    * #registerDataHandler(IlpDataHandler)} had never been called. If no data handler is currently set, this method does
    * nothing.
    */
   void unregisterDataHandler();
-
-//  /**
-//   * Handle an incoming data packet from a remote peer.
-//   *
-//   * @param preparePacket
-//   *
-//   * @return
-//   */
-//  CompletableFuture<InterledgerFulfillPacket> onIncomingData(InterledgerPreparePacket preparePacket)
-//      throws InterledgerProtocolException;
 
   /**
    * <p>Set the callback which is used to handle incoming money. The callback should expect one parameter (the amount)
@@ -150,19 +162,19 @@ public interface Plugin<T extends PluginSettings> {
 
   /**
    * Removes the currently used money handler. This has the same effect as if {@link
-   * #registerMoneyHandler(IlpMoneyHandler)} had never been called. If no money handler is currently set, this method does
-   * nothing.
+   * #registerMoneyHandler(IlpMoneyHandler)} had never been called. If no money handler is currently set, this method
+   * does nothing.
    */
   void unregisterMoneyHandler();
 
-//  /**
-//   * Actual data-handling for a plugin should be accomplished via
-//   *
-//   * @param amount A {@link BigInteger} representing the amount to attempt to settle.
-//   *
-//   * @return
-//   */
-//  CompletableFuture<Void> onIncomingMoney(BigInteger amount) throws InterledgerProtocolException;
+  /**
+   * Accessor for the currently registered {@link IlpMoneyHandler}. Throws a {@link RuntimeException} if no handler is
+   * registered, * because callers should not be trying to access the handler if none is registered (in other words, a
+   * Plugin is not * in a valid state until it has handlers registered).
+   *
+   * @return The currently registered {@link IlpMoneyHandler}.
+   */
+  IlpMoneyHandler getMoneyHandler();
 
   /**
    * Handles an incoming {@link InterledgerPreparePacket} for a single plugin, sent from a remote peer.
@@ -178,19 +190,25 @@ public interface Plugin<T extends PluginSettings> {
      *
      * @return A {@link CompletableFuture} that resolves to an {@link InterledgerFulfillPacket}.
      */
-    CompletableFuture<InterledgerFulfillPacket> handleIncomingData(
+    CompletableFuture<InterledgerResponsePacket> handleIncomingData(
         InterledgerAddress sourceAccountAddress, InterledgerPreparePacket sourcePreparePacket
-    ) throws InterledgerProtocolException;
+    );
   }
 
   /**
    * Handles an incoming message to settle an account with a remote peer, managed by a plugin.
    */
   @FunctionalInterface
-  interface IlpMoneyHandler extends Consumer<BigInteger> {
+  interface IlpMoneyHandler {
 
-    @Override
-    void accept(BigInteger amount) throws InterledgerProtocolException;
+    /**
+     * Handles an incoming ILP fulfill packet.
+     *
+     * @param amount
+     *
+     * @return A {@link CompletableFuture} that resolves to {@link Void}.
+     */
+    CompletableFuture<Void> handleIncomingMoney(BigInteger amount) throws InterledgerProtocolException;
   }
 
 }

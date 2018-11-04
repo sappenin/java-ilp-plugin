@@ -12,7 +12,9 @@ import java.util.concurrent.Executor;
  *
  * @author Gili Tzabari
  * @see "https://stackoverflow.com/questions/49705335/throwing-checked-exceptions-with-completablefuture/"
+ * @deprecated Remove if unused.
  */
+@Deprecated
 public final class Completions {
 
   /**

@@ -1,8 +1,0 @@
-/Users/fuelling/Development/sappenin/java-ilp-plugin/ilp-plugin-btp/src/main/java/org/interledger/plugin/lpiv2/btp2/subprotocols/BtpSubProtocolHandlerRegistry.java
-/Users/fuelling/Development/sappenin/java-ilp-plugin/ilp-plugin-btp/src/main/java/org/interledger/plugin/lpiv2/btp2/subprotocols/AbstractBtpSubProtocolHandler.java
-/Users/fuelling/Development/sappenin/java-ilp-plugin/ilp-plugin-btp/src/main/java/org/interledger/plugin/lpiv2/btp2/subprotocols/auth/AuthAbstractBtpSubprotocolHandler.java
-/Users/fuelling/Development/sappenin/java-ilp-plugin/ilp-plugin-btp/src/main/java/org/interledger/plugin/lpiv2/btp2/subprotocols/ilp/AbstractIlpBtpSubprotocolHandler.java
-/Users/fuelling/Development/sappenin/java-ilp-plugin/ilp-plugin-btp/src/main/java/org/interledger/plugin/lpiv2/btp2/BtpPluginSettings.java
-/Users/fuelling/Development/sappenin/java-ilp-plugin/ilp-plugin-btp/src/main/java/org/interledger/plugin/lpiv2/btp2/BtpServerPluginSettings.java
-/Users/fuelling/Development/sappenin/java-ilp-plugin/ilp-plugin-btp/src/main/java/org/interledger/plugin/lpiv2/btp2/BtpClientPluginSettings.java
-/Users/fuelling/Development/sappenin/java-ilp-plugin/ilp-plugin-btp/src/main/java/org/interledger/plugin/lpiv2/btp2/AbstractBtpPlugin.java

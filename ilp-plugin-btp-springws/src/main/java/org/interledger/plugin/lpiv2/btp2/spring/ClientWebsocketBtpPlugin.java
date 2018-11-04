@@ -1,6 +1,12 @@
 package org.interledger.plugin.lpiv2.btp2.spring;
 
+import static org.interledger.btp.BtpSubProtocol.ContentType.MIME_APPLICATION_OCTET_STREAM;
+import static org.interledger.plugin.lpiv2.btp2.subprotocols.BtpSubProtocolHandlerRegistry.BTP_SUB_PROTOCOL_AUTH;
+import static org.interledger.plugin.lpiv2.btp2.subprotocols.BtpSubProtocolHandlerRegistry.BTP_SUB_PROTOCOL_ILP;
+
 import org.interledger.btp.BtpMessage;
+import org.interledger.btp.asn.framework.BtpCodecContextFactory;
+import org.interledger.core.asn.framework.InterledgerCodecContextFactory;
 import org.interledger.encoding.asn.framework.CodecContext;
 import org.interledger.plugin.lpiv2.PluginType;
 import org.interledger.plugin.lpiv2.btp2.BtpClientPluginSettings;
@@ -39,6 +45,32 @@ public class ClientWebsocketBtpPlugin extends AbstractWebsocketBtpPlugin<BtpClie
   /**
    * Required-args Constructor.
    */
+  public ClientWebsocketBtpPlugin(final BtpClientPluginSettings settings) {
+    this(settings, InterledgerCodecContextFactory.oer(), BtpCodecContextFactory.oer());
+  }
+
+  /**
+   * Required-args Constructor.
+   */
+  public ClientWebsocketBtpPlugin(
+      final BtpClientPluginSettings settings,
+      final CodecContext ilpCodecContext,
+      final CodecContext btpCodecContext
+  ) {
+    this(
+        settings,
+        ilpCodecContext,
+        btpCodecContext,
+        new BtpSubProtocolHandlerRegistry(),
+        new BinaryMessageToBtpPacketConverter(btpCodecContext),
+        new BtpPacketToBinaryMessageConverter(btpCodecContext),
+        new StandardWebSocketClient()
+    );
+  }
+
+  /**
+   * Required-args Constructor.
+   */
   public ClientWebsocketBtpPlugin(
       final BtpClientPluginSettings settings,
       final CodecContext ilpCodecContext,
@@ -53,6 +85,18 @@ public class ClientWebsocketBtpPlugin extends AbstractWebsocketBtpPlugin<BtpClie
 
     this.wsClient = Objects.requireNonNull(wsClient);
   }
+
+  /**
+   * Override the plugin-type in the supplied plugin settings.
+   *
+   * @param pluginSettings
+   *
+   * @return
+   */
+  private static final BtpClientPluginSettings setPluginType(final BtpClientPluginSettings pluginSettings) {
+    return BtpClientPluginSettings.builder().from(pluginSettings).pluginType(PLUGIN_TYPE).build();
+  }
+
 
   @Override
   public CompletableFuture<Void> doConnect() {

@@ -11,7 +11,7 @@
 
   <artifactId>ilp-plugin-btp-springws</artifactId>
 
-  <name>ILP Plugin BTP over Spring Websockets (Java)</name>
+  <name>ILP Plugin BTP over Spring Websockets</name>
   <description>
     Java implementation of a BTP Plugin that communicates over Websockets using Spring libraries.
   </description>
@@ -50,6 +50,14 @@
     <dependency>
       <groupId>org.interledger</groupId>
       <artifactId>ilp-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.interledger</groupId>
+      <artifactId>ilp-core-codecs</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.interledger</groupId>
+      <artifactId>btp-core-codecs</artifactId>
     </dependency>
     <dependency>
       <groupId>org.interledger</groupId>

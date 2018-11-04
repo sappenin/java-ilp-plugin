@@ -1,12 +1,13 @@
 package org.interledger.plugin.lpiv2;
 
+import org.interledger.core.InterledgerCondition;
 import org.interledger.core.InterledgerErrorCode;
 import org.interledger.core.InterledgerFulfillPacket;
 import org.interledger.core.InterledgerFulfillment;
 import org.interledger.core.InterledgerPreparePacket;
 import org.interledger.core.InterledgerProtocolException;
 import org.interledger.core.InterledgerRejectPacket;
-import org.interledger.plugin.lpiv2.support.Completions;
+import org.interledger.core.InterledgerResponsePacket;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
@@ -21,14 +22,16 @@ import java.util.concurrent.CompletableFuture;
  */
 public class SimulatedChildPlugin extends AbstractPlugin<PluginSettings> implements Plugin<PluginSettings> {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(SimulatedChildPlugin.class);
   public static final String PLUGIN_TYPE_STRING = "SimulatedChildPlugin";
   public static final PluginType PLUGIN_TYPE = PluginType.of(PLUGIN_TYPE_STRING);
 
   public static final byte[] ILP_DATA = "MARTY!".getBytes();
-
   public static final byte[] PREIMAGE = "Roads? Where we're going we dont".getBytes();
+
   public static final InterledgerFulfillment FULFILLMENT = InterledgerFulfillment.of(PREIMAGE);
+  public static final InterledgerCondition CONDITION = FULFILLMENT.getCondition();
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(SimulatedChildPlugin.class);
 
   // For simulation purposes, allows a test-harness to flip this flag in order to simulate failed operations.
   private boolean completeSuccessfully = true;
@@ -41,18 +44,18 @@ public class SimulatedChildPlugin extends AbstractPlugin<PluginSettings> impleme
 
     this.registerDataHandler((sourceAccountAddress, preparePacket) -> {
       if (completeSuccessfully) {
-        return getFulfillPacket();
+        return CompletableFuture.supplyAsync(() -> getSendDataFulfillPacket());
       } else {
-        throw new InterledgerProtocolException(getSendDataRejectPacket());
+        return CompletableFuture.supplyAsync(() -> getSendDataRejectPacket());
       }
     });
 
     this.registerMoneyHandler((amount -> {
       if (completeSuccessfully) {
-        // No-op
-        return;
+        // No-Op.
+        return CompletableFuture.supplyAsync(() -> null);
       } else {
-        throw new InterledgerProtocolException(getSendMoneyRejectPacket());
+        throw new RuntimeException("sendMoney failed!");
       }
     }));
 
@@ -63,25 +66,20 @@ public class SimulatedChildPlugin extends AbstractPlugin<PluginSettings> impleme
    * #completeSuccessfully}.
    */
   @Override
-  public CompletableFuture<InterledgerFulfillPacket> doSendData(InterledgerPreparePacket preparePacket)
-      throws InterledgerProtocolException {
+  public CompletableFuture<InterledgerResponsePacket> doSendData(InterledgerPreparePacket preparePacket) {
     if (completeSuccessfully) {
-      return Completions.supplyAsync(() -> {
-            final InterledgerFulfillPacket packet = InterledgerFulfillPacket.builder()
-                .data(ILP_DATA)
-                .fulfillment(InterledgerFulfillment.of(PREIMAGE))
-                .build();
-            return packet;
-          }
-      ).toCompletableFuture();
+      return CompletableFuture.supplyAsync(() -> InterledgerFulfillPacket.builder()
+          .fulfillment(InterledgerFulfillment.of(PREIMAGE))
+          .data(ILP_DATA)
+          .build()
+      );
     } else {
-      throw new InterledgerProtocolException(
-          InterledgerRejectPacket.builder()
-              .data(ILP_DATA)
-              .triggeredBy(getPluginSettings().getPeerAccountAddress())
-              .code(InterledgerErrorCode.F00_BAD_REQUEST)
-              .message("SendData failed!")
-              .build()
+      return CompletableFuture.supplyAsync(() -> InterledgerRejectPacket.builder()
+          .triggeredBy(getPluginSettings().getPeerAccountAddress())
+          .code(InterledgerErrorCode.F00_BAD_REQUEST)
+          .message("SendData failed!")
+          .data(ILP_DATA)
+          .build()
       );
     }
   }
@@ -93,10 +91,10 @@ public class SimulatedChildPlugin extends AbstractPlugin<PluginSettings> impleme
     } else {
       throw new InterledgerProtocolException(
           InterledgerRejectPacket.builder()
-              .data(ILP_DATA)
               .triggeredBy(getPluginSettings().getPeerAccountAddress())
               .code(InterledgerErrorCode.F00_BAD_REQUEST)
               .message("SendMoney failed!")
+              .data(ILP_DATA)
               .build()
       );
     }
@@ -124,13 +122,11 @@ public class SimulatedChildPlugin extends AbstractPlugin<PluginSettings> impleme
    * @return
    */
   @VisibleForTesting
-  public final CompletableFuture<InterledgerFulfillPacket> getFulfillPacket() {
-    return CompletableFuture.completedFuture(
-        InterledgerFulfillPacket.builder()
-            .data(ILP_DATA)
-            .fulfillment(InterledgerFulfillment.of(PREIMAGE))
-            .build()
-    );
+  public final InterledgerFulfillPacket getSendDataFulfillPacket() {
+    return InterledgerFulfillPacket.builder()
+        .fulfillment(FULFILLMENT)
+        .data(ILP_DATA)
+        .build();
   }
 
   /**
@@ -141,25 +137,10 @@ public class SimulatedChildPlugin extends AbstractPlugin<PluginSettings> impleme
   @VisibleForTesting
   public final InterledgerRejectPacket getSendDataRejectPacket() {
     return InterledgerRejectPacket.builder()
-        .data(ILP_DATA)
         .triggeredBy(getPluginSettings().getPeerAccountAddress())
         .code(InterledgerErrorCode.F00_BAD_REQUEST)
         .message("Handle SendData failed!")
-        .build();
-  }
-
-  /**
-   * Helper method to return the rejection packet that is used by this simulated plugin.
-   *
-   * @return
-   */
-  @VisibleForTesting
-  public final InterledgerRejectPacket getSendMoneyRejectPacket() {
-    return InterledgerRejectPacket.builder()
         .data(ILP_DATA)
-        .triggeredBy(getPluginSettings().getPeerAccountAddress())
-        .code(InterledgerErrorCode.F00_BAD_REQUEST)
-        .message("Handle SendMoney failed!")
         .build();
   }
 }

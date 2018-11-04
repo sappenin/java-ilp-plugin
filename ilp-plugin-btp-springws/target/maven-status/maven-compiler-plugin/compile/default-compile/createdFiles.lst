@@ -1,8 +1,0 @@
-org/interledger/plugin/lpiv2/btp2/spring/AbstractWebsocketBtpPlugin$1.class
-org/interledger/plugin/lpiv2/btp2/spring/AbstractWebsocketBtpPlugin.class
-org/interledger/plugin/lpiv2/btp2/spring/ClientWebsocketBtpPlugin$1.class
-org/interledger/plugin/lpiv2/btp2/spring/converters/BinaryMessageToBtpPacketConverter.class
-org/interledger/plugin/lpiv2/btp2/spring/converters/BtpPacketToBinaryMessageConverter.class
-org/interledger/plugin/lpiv2/btp2/spring/ServerWebsocketBtpPlugin.class
-org/interledger/plugin/lpiv2/btp2/spring/converters/BtpConversionException.class
-org/interledger/plugin/lpiv2/btp2/spring/ClientWebsocketBtpPlugin.class

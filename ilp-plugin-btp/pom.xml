@@ -11,7 +11,7 @@
 
   <artifactId>ilp-plugin-btp</artifactId>
 
-  <name>ILP Plugin BTP (Java)</name>
+  <name>ILP Plugin BTP</name>
   <description>Java implementation of a BTP Plugin Interface</description>
 
   <dependencies>

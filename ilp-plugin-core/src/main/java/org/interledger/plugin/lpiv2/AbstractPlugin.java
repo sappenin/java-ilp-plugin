@@ -1,9 +1,7 @@
 package org.interledger.plugin.lpiv2;
 
-import org.interledger.core.InterledgerAddress;
-import org.interledger.core.InterledgerFulfillPacket;
 import org.interledger.core.InterledgerPreparePacket;
-import org.interledger.core.InterledgerProtocolException;
+import org.interledger.core.InterledgerResponsePacket;
 import org.interledger.plugin.lpiv2.events.ImmutablePluginConnectedEvent;
 import org.interledger.plugin.lpiv2.events.ImmutablePluginDisconnectedEvent;
 import org.interledger.plugin.lpiv2.events.PluginConnectedEvent;
@@ -13,7 +11,6 @@ import org.interledger.plugin.lpiv2.events.PluginEventEmitter;
 import org.interledger.plugin.lpiv2.events.PluginEventHandler;
 import org.interledger.plugin.lpiv2.exceptions.DataHandlerAlreadyRegisteredException;
 import org.interledger.plugin.lpiv2.exceptions.MoneyHandlerAlreadyRegisteredException;
-import org.interledger.plugin.lpiv2.support.Completions;
 
 import com.google.common.collect.Maps;
 import org.slf4j.Logger;
@@ -106,11 +103,10 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
         // Nothing todo, we're already connected...
         return CompletableFuture.completedFuture(null);
       }
-    } catch (Exception e) {
-      LOGGER.error(e.getMessage(), e);
-
+    } catch (RuntimeException e) {
       // If we can't connect, then disconnect this account in order to trigger any listeners.
-      return this.disconnect();
+      this.disconnect().join();
+      throw e;
     }
   }
 
@@ -126,7 +122,7 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
 
     try {
       if (this.connected.compareAndSet(CONNECTED, NOT_CONNECTED)) {
-        return this.doDisconnect().whenComplete((result, error) -> {
+        return this.doDisconnect().thenAccept(($) -> {
           // In either case above, emit the disconnect event.
           this.pluginEventEmitter.emitEvent(ImmutablePluginDisconnectedEvent.builder()
               .peerAccountAddress(this.getPluginSettings().getPeerAccountAddress())
@@ -188,34 +184,14 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
   }
 
   /**
-   * Provides sub-classes with access to the {@link IlpDataHandler}, typically for testing purposes.
-   */
-//  @VisibleForTesting
-//  protected AtomicReference<IlpDataHandler> getDataHandlerAtomicReference() {
-//    return dataHandlerAtomicReference;
-//  }
-
-  /**
-   * Provides sub-classes with access to the {@link IlpMoneyHandler}, typically for testing purposes.
-   */
-//  @VisibleForTesting
-//  protected AtomicReference<IlpMoneyHandler> getMoneyHandlerAtomicReference() {
-//    return moneyHandlerAtomicReference;
-//  }
-
-  /**
    * Delegates to {@link #doSendData(InterledgerPreparePacket)} so that implementations don't need to worry about async
    * behavior.
    */
   @Override
-  public final CompletableFuture<InterledgerFulfillPacket> sendData(final InterledgerPreparePacket preparePacket)
-      throws InterledgerProtocolException {
+  public final CompletableFuture<InterledgerResponsePacket> sendData(final InterledgerPreparePacket preparePacket) {
     Objects.requireNonNull(preparePacket);
 
     LOGGER.debug("[{}] sendData: {}", this.pluginSettings.getPluginType(), preparePacket);
-
-    // TODO? Handles checked and unchecked exceptions properly.
-    //return Completions.supplyAsync(() -> this.doSendData(preparePacket)).toCompletableFuture();
 
     return this.doSendData(preparePacket);
   }
@@ -223,8 +199,7 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
   /**
    * Perform the logic of sending a packet to a remote peer.
    */
-  public abstract CompletableFuture<InterledgerFulfillPacket> doSendData(final InterledgerPreparePacket preparePacket)
-      throws InterledgerProtocolException;
+  public abstract CompletableFuture<InterledgerResponsePacket> doSendData(final InterledgerPreparePacket preparePacket);
 
   @Override
   public void registerDataHandler(final IlpDataHandler ilpDataHandler) throws DataHandlerAlreadyRegisteredException {
@@ -237,23 +212,15 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
     }
   }
 
-  /**
-   * Internal method available for implementations to be able to broadcast incoming money to the {@link IlpDataHandler}
-   * registered with this plugin. Note that this method is not meant to be called outside of the plugin, except in
-   * testing scenarios.
-   *
-   * @param preparePacket
-   *
-   * @return
-   */
-  public final CompletableFuture<InterledgerFulfillPacket> onIncomingData(
-      final InterledgerAddress sourceAddress, final InterledgerPreparePacket preparePacket)
-      throws InterledgerProtocolException {
-    Objects.requireNonNull(preparePacket);
-    LOGGER.debug("[{}] onIncomingData: {}",
-        this.pluginSettings.getPluginType(), preparePacket
-    );
-    return dataHandlerAtomicReference.get().handleIncomingData(sourceAddress, preparePacket);
+  @Override
+  public IlpDataHandler getDataHandler() {
+    return dataHandlerAtomicReference.get();
+  }
+
+
+  @Override
+  public IlpMoneyHandler getMoneyHandler() {
+    return moneyHandlerAtomicReference.get();
   }
 
   /**
@@ -281,23 +248,6 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
    * Perform the logic of settling with a remote peer.
    */
   protected abstract CompletableFuture<Void> doSendMoney(final BigInteger amount);
-
-  /**
-   * Internal method available for implementations to be able to broadcast incoming money to the {@link IlpMoneyHandler}
-   * registered with this plugin. Note that this method is not meant to be called outside of the plugin, except in
-   * testing scenarios.
-   *
-   * @param amount
-   *
-   * @return
-   */
-  public final CompletableFuture<Void> onIncomingMoney(final BigInteger amount)
-      throws InterledgerProtocolException {
-    Objects.requireNonNull(amount);
-    LOGGER.debug("[{}] onIncomingMoney: {}", this.pluginSettings.getPluginType(), amount);
-    // Completions handles checked and unchecked exceptions properly.
-    return Completions.supplyAsync(() -> moneyHandlerAtomicReference.get().accept(amount)).toCompletableFuture();
-  }
 
   /**
    * <p>Set the callback which is used to handle incoming money. The callback should expect one parameter (the amount)

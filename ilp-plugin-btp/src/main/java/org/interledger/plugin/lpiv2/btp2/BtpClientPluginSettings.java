@@ -1,7 +1,5 @@
 package org.interledger.plugin.lpiv2.btp2;
 
-import org.interledger.plugin.lpiv2.PluginSettings;
-
 import com.google.common.base.Preconditions;
 import org.immutables.value.Value;
 
@@ -36,21 +34,14 @@ public interface BtpClientPluginSettings extends BtpPluginSettings {
   }
 
   /**
-   * Populate a new {@link ImmutableBtpClientPluginSettings.Builder} with the correct custom settings, as found in
-   * {@code customSettings}.
+   * Construct a new Builder.
    *
-   * @param pluginSettings
-   *
-   * @return A new instance of {@link ImmutableBtpClientPluginSettings.Builder} with custom-settings properly
-   * initialized.
+   * @return A new instance of {@link ImmutableBtpClientPluginSettings.Builder}.
    */
-  static ImmutableBtpClientPluginSettings.Builder fromPluginSettingsWithCustomSettings(
-      final PluginSettings pluginSettings) {
-    Objects.requireNonNull(pluginSettings);
+  static ImmutableBtpClientPluginSettings.Builder builder(final Map<String, Object> customSettings) {
+    Objects.requireNonNull(customSettings);
 
-    return withCustomSettings(
-      ImmutableBtpClientPluginSettings.builder().from(pluginSettings), pluginSettings.getCustomSettings()
-    );
+    return applyCustomSettings(builder(), customSettings);
   }
 
   /**
@@ -61,27 +52,29 @@ public interface BtpClientPluginSettings extends BtpPluginSettings {
    *
    * @return
    */
-  static ImmutableBtpClientPluginSettings.Builder withCustomSettings(
+  static ImmutableBtpClientPluginSettings.Builder applyCustomSettings(
       final ImmutableBtpClientPluginSettings.Builder builder, Map<String, Object> customSettings
   ) {
     Objects.requireNonNull(builder);
+    Objects.requireNonNull(customSettings);
 
     return builder
-      .secret(
-        Objects.requireNonNull(customSettings.get(KEY_SECRET), "`secret` not found in customSettings!").toString()
-      )
-      .remotePeerScheme(
-        Objects
-          .requireNonNull(customSettings.get(KEY_REMOTE_PEER_SCHEME), "`remotePeerScheme` not found in customSettings!")
-          .toString()
-      )
-      .remotePeerHostname(
-        Objects.requireNonNull(customSettings.get(KEY_REMOTE_PEER_HOSTNAME),
-          "`remotePeerHostname` not found in customSettings!").toString()
-      )
-      .remotePeerPort(Objects
-        .requireNonNull(customSettings.get(KEY_REMOTE_PEER_PORT), "`remotePeerPort` not found in customSettings!")
-        .toString());
+        .secret(
+            Objects.requireNonNull(customSettings.get(KEY_SECRET), "`secret` not found in customSettings!").toString()
+        )
+        .remotePeerScheme(
+            Objects
+                .requireNonNull(customSettings.get(KEY_REMOTE_PEER_SCHEME),
+                    "`remotePeerScheme` not found in customSettings!")
+                .toString()
+        )
+        .remotePeerHostname(
+            Objects.requireNonNull(customSettings.get(KEY_REMOTE_PEER_HOSTNAME),
+                "`remotePeerHostname` not found in customSettings!").toString()
+        )
+        .remotePeerPort(Objects
+            .requireNonNull(customSettings.get(KEY_REMOTE_PEER_PORT), "`remotePeerPort` not found in customSettings!")
+            .toString());
   }
 
   /**
@@ -113,6 +106,6 @@ public interface BtpClientPluginSettings extends BtpPluginSettings {
   @Value.Check
   default void check() {
     Preconditions.checkArgument("ws".equals(this.getRemotePeerScheme()) || "wss".equals(this.getRemotePeerScheme()),
-      "Remote Peer scheme must be either `ws` or `wss`");
+        "Remote Peer scheme must be either `ws` or `wss`");
   }
 }

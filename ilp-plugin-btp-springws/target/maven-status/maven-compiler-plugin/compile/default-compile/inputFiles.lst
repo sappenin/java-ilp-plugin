@@ -1,6 +1,0 @@
-/Users/fuelling/Development/sappenin/java-ilp-plugin/ilp-plugin-btp-springws/src/main/java/org/interledger/plugin/lpiv2/btp2/spring/ServerWebsocketBtpPlugin.java
-/Users/fuelling/Development/sappenin/java-ilp-plugin/ilp-plugin-btp-springws/src/main/java/org/interledger/plugin/lpiv2/btp2/spring/ClientWebsocketBtpPlugin.java
-/Users/fuelling/Development/sappenin/java-ilp-plugin/ilp-plugin-btp-springws/src/main/java/org/interledger/plugin/lpiv2/btp2/spring/converters/BtpConversionException.java
-/Users/fuelling/Development/sappenin/java-ilp-plugin/ilp-plugin-btp-springws/src/main/java/org/interledger/plugin/lpiv2/btp2/spring/converters/BtpPacketToBinaryMessageConverter.java
-/Users/fuelling/Development/sappenin/java-ilp-plugin/ilp-plugin-btp-springws/src/main/java/org/interledger/plugin/lpiv2/btp2/spring/AbstractWebsocketBtpPlugin.java
-/Users/fuelling/Development/sappenin/java-ilp-plugin/ilp-plugin-btp-springws/src/main/java/org/interledger/plugin/lpiv2/btp2/spring/converters/BinaryMessageToBtpPacketConverter.java
