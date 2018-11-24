@@ -9,7 +9,7 @@
 
 Java implementation of the [Plugin Interface 2](https://github.com/interledger/rfcs/blob/master/0024-ledger-plugin-interface-2/0024-ledger-plugin-interface-2.md), typically used by ILPv4 Connectors.
 
-* v4.0.0-SNAPSHOT Initial commit of interfaces and abstract classes for ILPv4 Plugins.
+* v2.0.0-SNAPSHOT Initial commit of interfaces and abstract classes for ILPv4 Plugins.
  
 ## Usage
 
@@ -43,7 +43,7 @@ $ mvn checkstyle:checkstyle
 
 ### Step 3: Extend
 This project is meant to be extended with your own implementation. There is one concrete
-implementation of a Plugin in this project, called `SimulatedChildPlugin`, which is a demonstration
+implementation of a Plugin in this project, called `SimulatedPlugin`, which is a demonstration
 implementation that simulates a connection to a fake remote Node where the runtime operating the
 plugin is a _child_ of the remote node (see [https://github.com/interledger/rfcs](https://github.com/interledger/rfcs)
 for more details about Interledger relationships).

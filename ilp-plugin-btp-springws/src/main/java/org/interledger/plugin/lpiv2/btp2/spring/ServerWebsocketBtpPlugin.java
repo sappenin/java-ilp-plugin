@@ -7,11 +7,10 @@ import org.interledger.plugin.lpiv2.btp2.spring.converters.BinaryMessageToBtpPac
 import org.interledger.plugin.lpiv2.btp2.spring.converters.BtpPacketToBinaryMessageConverter;
 import org.interledger.plugin.lpiv2.btp2.subprotocols.BtpSubProtocolHandlerRegistry;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.web.socket.WebSocketSession;
 
 import java.io.IOException;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -24,7 +23,23 @@ public class ServerWebsocketBtpPlugin extends AbstractWebsocketBtpPlugin<BtpServ
   public static final String PLUGIN_TYPE_STRING = "BTP_SERVER";
   public static final PluginType PLUGIN_TYPE = PluginType.of(PLUGIN_TYPE_STRING);
 
-  private final Logger logger = LoggerFactory.getLogger(this.getClass());
+  /**
+   * Required-args Constructor.
+   */
+  public ServerWebsocketBtpPlugin(
+      final BtpServerPluginSettings pluginSettings,
+      final CodecContext ilpCodecContext,
+      final CodecContext btpCodecContext,
+      final BtpSubProtocolHandlerRegistry btpSubProtocolHandlerRegistry,
+      final BinaryMessageToBtpPacketConverter binaryMessageToBtpPacketConverter,
+      final BtpPacketToBinaryMessageConverter btpPacketToBinaryMessageConverter,
+      final WebSocketSession webSocketSession
+  ) {
+    super(
+        pluginSettings, ilpCodecContext, btpCodecContext, btpSubProtocolHandlerRegistry,
+        binaryMessageToBtpPacketConverter, btpPacketToBinaryMessageConverter, webSocketSession
+    );
+  }
 
   /**
    * Required-args Constructor.
@@ -49,11 +64,7 @@ public class ServerWebsocketBtpPlugin extends AbstractWebsocketBtpPlugin<BtpServ
    */
   @Override
   public CompletableFuture<Void> doConnect() {
-    // Grab BtpSocketHandler from the Context, and call setServerWebsocketBtpPlugin(this) in order to connect the two.
-    //this.applicationContext.getBean(BtpSocketHandler.class).setServerWebsocketBtpPlugin(this);
-
-    // There is else todo to connect this plugin to the server...if a client successfully connects via Auth, then a
-    // webSocketSession will be attached.
+    // This is a no-op. The BtpSession is associated
     return CompletableFuture.completedFuture(null);
   }
 
@@ -61,9 +72,9 @@ public class ServerWebsocketBtpPlugin extends AbstractWebsocketBtpPlugin<BtpServ
   public CompletableFuture<Void> doDisconnect() {
     return CompletableFuture.runAsync(() -> {
       // Close the webSocketSession...
-      this.webSocketSession.ifPresent(presentSession -> {
+      this.webSocketSession.ifPresent(session -> {
         try {
-          presentSession.close();
+          session.close();
         } catch (IOException e) {
           throw new RuntimeException(e);
         }
@@ -80,7 +91,7 @@ public class ServerWebsocketBtpPlugin extends AbstractWebsocketBtpPlugin<BtpServ
   /**
    * Method for setter-based dependency injection.
    */
-  public void setWebSocketSession(final WebSocketSession session) {
-    this.webSocketSession = Optional.of(session);
+  public void setWebSocketSession(final Optional<WebSocketSession> webSocketSession) {
+    this.webSocketSession = Objects.requireNonNull(webSocketSession);
   }
 }

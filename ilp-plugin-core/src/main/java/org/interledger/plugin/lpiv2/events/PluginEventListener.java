@@ -5,7 +5,7 @@ import org.interledger.plugin.lpiv2.Plugin;
 /**
  * Handler interface that defines events related to internal system operations of a {@link Plugin}.
  */
-public interface PluginEventHandler {
+public interface PluginEventListener {
 
   /**
    * Called to handle an {@link PluginConnectedEvent}.

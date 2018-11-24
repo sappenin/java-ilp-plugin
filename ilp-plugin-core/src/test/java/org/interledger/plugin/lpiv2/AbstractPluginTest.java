@@ -13,7 +13,7 @@ import org.interledger.core.InterledgerPreparePacket;
 import org.interledger.core.InterledgerProtocolException;
 import org.interledger.core.InterledgerResponsePacket;
 import org.interledger.plugin.lpiv2.TestHelpers.ExtendedPluginSettings;
-import org.interledger.plugin.lpiv2.events.PluginEventHandler;
+import org.interledger.plugin.lpiv2.events.PluginEventListener;
 
 import ch.qos.logback.classic.Level;
 import org.junit.Before;
@@ -24,6 +24,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigInteger;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -32,7 +34,7 @@ import java.util.concurrent.CompletableFuture;
 public class AbstractPluginTest {
 
   @Mock
-  protected PluginEventHandler pluginEventHandlerMock;
+  protected PluginEventListener pluginEventListenerMock;
 
   protected AbstractPlugin<ExtendedPluginSettings> abstractPlugin;
 
@@ -62,15 +64,17 @@ public class AbstractPluginTest {
       }
 
       @Override
-      public CompletableFuture<InterledgerResponsePacket> doSendData(InterledgerPreparePacket preparePacket)
+      public CompletableFuture<Optional<InterledgerResponsePacket>> doSendData(InterledgerPreparePacket preparePacket)
           throws InterledgerProtocolException {
-        return null;
+        return CompletableFuture.completedFuture(Optional.empty());
       }
     };
-    this.abstractPlugin.addPluginEventHandler(pluginEventHandlerMock);
+    this.abstractPlugin.addPluginEventListener(UUID.randomUUID(), pluginEventListenerMock);
 
-    this.abstractPlugin.registerDataHandler(((sourceAccountAddress, sourcePreparePacket) ->
-        CompletableFuture.supplyAsync(() -> TestHelpers.getSendDataFulfillPacket())
+    this.abstractPlugin.registerDataHandler(((
+        //sourceAccountAddress,
+        sourcePreparePacket) ->
+        CompletableFuture.supplyAsync(() -> Optional.of(TestHelpers.getSendDataFulfillPacket()))
     ));
     this.abstractPlugin.registerMoneyHandler((amount -> CompletableFuture.supplyAsync(() -> null)));
   }
@@ -80,17 +84,17 @@ public class AbstractPluginTest {
     // The test connects the plugin by default, so no need to call it again here...
     this.abstractPlugin.disconnect().join();
     assertThat(abstractPlugin.isConnected(), is(NOT_CONNECTED));
-    verifyZeroInteractions(pluginEventHandlerMock);
+    verifyZeroInteractions(pluginEventListenerMock);
 
     this.abstractPlugin.connect().join();
     assertThat(abstractPlugin.isConnected(), is(CONNECTED));
-    verify(pluginEventHandlerMock).onConnect(any());
-    verifyNoMoreInteractions(pluginEventHandlerMock);
+    verify(pluginEventListenerMock).onConnect(any());
+    verifyNoMoreInteractions(pluginEventListenerMock);
 
     this.abstractPlugin.disconnect().join();
     assertThat(abstractPlugin.isConnected(), is(NOT_CONNECTED));
-    verify(pluginEventHandlerMock).onDisconnect(any());
-    verifyNoMoreInteractions(pluginEventHandlerMock);
+    verify(pluginEventListenerMock).onDisconnect(any());
+    verifyNoMoreInteractions(pluginEventListenerMock);
   }
 
   // TODO: Cover Money and DataHandlers

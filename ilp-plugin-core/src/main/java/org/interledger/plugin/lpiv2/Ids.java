@@ -11,8 +11,8 @@ import org.immutables.value.Value;
 public class Ids {
 
   /**
-   * A wrapper type that defines a "type" of ledger plugin based upon a unique String. For example,
-   * "ilp-mock-plugin" or "btp2-plugin".
+   * A wrapper that defines a "type" of ledger plugin based upon a unique String. For example, "simulated-plugin" or
+   * "btp2-plugin".
    */
   @Value.Immutable
   @Wrapped

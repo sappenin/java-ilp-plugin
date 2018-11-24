@@ -1,6 +1,8 @@
-package org.interledger.plugin.lpiv2;
+package org.interledger.plugin.lpiv2.settings;
 
 import org.interledger.core.InterledgerAddress;
+import org.interledger.plugin.lpiv2.Plugin;
+import org.interledger.plugin.lpiv2.PluginType;
 
 import org.immutables.value.Value.Immutable;
 

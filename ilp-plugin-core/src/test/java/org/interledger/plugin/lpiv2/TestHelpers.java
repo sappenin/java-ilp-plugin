@@ -5,6 +5,7 @@ import org.interledger.core.InterledgerErrorCode;
 import org.interledger.core.InterledgerFulfillPacket;
 import org.interledger.core.InterledgerFulfillment;
 import org.interledger.core.InterledgerRejectPacket;
+import org.interledger.plugin.lpiv2.settings.PluginSettings;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;

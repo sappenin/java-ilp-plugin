@@ -1,14 +1,17 @@
 package org.interledger.plugin.lpiv2;
 
-import org.interledger.core.InterledgerAddress;
-import org.interledger.core.InterledgerFulfillPacket;
 import org.interledger.core.InterledgerPreparePacket;
-import org.interledger.core.InterledgerProtocolException;
-import org.interledger.core.InterledgerResponsePacket;
-import org.interledger.plugin.lpiv2.events.PluginEventHandler;
+import org.interledger.plugin.link.BilateralDataHandler;
+import org.interledger.plugin.link.BilateralMoneyHandler;
+import org.interledger.plugin.link.BilateralPinger;
+import org.interledger.plugin.link.BilateralReceiver;
+import org.interledger.plugin.link.BilateralSender;
+import org.interledger.plugin.lpiv2.events.PluginEventListener;
 import org.interledger.plugin.lpiv2.exceptions.DataHandlerAlreadyRegisteredException;
 import org.interledger.plugin.lpiv2.exceptions.MoneyHandlerAlreadyRegisteredException;
+import org.interledger.plugin.lpiv2.settings.PluginSettings;
 
+import java.io.Closeable;
 import java.math.BigInteger;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -21,14 +24,14 @@ import java.util.concurrent.CompletableFuture;
  * <pre>
  * Sender --sendData-> Connector 1 --sendData-> Connector 2 --sendData-> Receiver
  *    |                        |                        |
- *    `----sendMoney->            `----sendMoney->            `----sendMoney->
+ *    `----sendMoney->         `----sendMoney->         `----sendMoney->
  * </pre>
  *
- * Sender/Connector's call <tt>sendData</tt>, wait for a fulfillment, and then call
- * <tt>sendMoney</tt> (possibly infrequently or even only eventually for bulk settlement) if the fulfillment is
- * valid.</p>
+ * Sender/Connector's call <tt>sendData</tt>, wait for a fulfillment, and then call <tt>sendMoney</tt> (possibly
+ * infrequently or even only eventually for bulk settlement) if the fulfillment is valid.</p>
  */
-public interface Plugin<T extends PluginSettings> {
+public interface Plugin<T extends PluginSettings> extends BilateralPinger, BilateralSender, BilateralReceiver,
+    Closeable {
 
   boolean CONNECTED = true;
   boolean NOT_CONNECTED = false;
@@ -39,7 +42,7 @@ public interface Plugin<T extends PluginSettings> {
   T getPluginSettings();
 
   /**
-   * Connect to the remote peer.
+   * <p>Connect to the remote peer.</p>
    */
   CompletableFuture<Void> connect();
 
@@ -49,44 +52,12 @@ public interface Plugin<T extends PluginSettings> {
   CompletableFuture<Void> disconnect();
 
   /**
-   * Determines if a plugin is connected or not.
+   * <p>Determines if a plugin is connected to a remote peer or note. If authentication is required, this method will
+   * return false until an authenticated session is opened.</p>
    *
    * @return {@code true} if the plugin is connected; {@code false} otherwise.
    */
   boolean isConnected();
-
-//  /**
-//   * Sends an ILP request packet to the peer and returns the response packet (this method correlates with
-//   * <tt>sendData</tt> in the Javascript connector).
-//   *
-//   * @param preparePacket The ILP packet to send to the peer.
-//   *
-//   * @return A {@link CompletableFuture} that resolves to the ILP response from the peer.
-//   *
-//   * @throws InterledgerProtocolException if the request is rejected by the peer.
-//   */
-  //CompletableFuture<InterledgerFulfillPacket> sendData(InterledgerPreparePacket preparePacket)
-  //    throws InterledgerProtocolException;
-
-  /**
-   * Sends an ILP request packet to the peer and returns the response packet (this method correlates with
-   * <tt>sendData</tt> in the Javascript connector).
-   *
-   * @param preparePacket An {@link InterledgerPreparePacket} to send to the remote peer.
-   *
-   * @return A {@link CompletableFuture} that resolves to the ILP response from the peer as an instance of {@link
-   *     InterledgerResponsePacket}.
-   */
-  CompletableFuture<InterledgerResponsePacket> sendData(InterledgerPreparePacket preparePacket);
-
-  /**
-   * Settle an outstanding ILP balance with a counterparty by transferring {@code amount} units of value from this ILP
-   * node to the counterparty of the account used by this plugin (this method correlates to <tt>sendMoney</tt> in the
-   * Javascript Connector).
-   *
-   * @param amount The amount of "money" to transfer.
-   */
-  CompletableFuture<Void> sendMoney(BigInteger amount);
 
   /**
    * Add a  plugin event handler to this plugin.
@@ -94,12 +65,12 @@ public interface Plugin<T extends PluginSettings> {
    * Care should be taken when adding multiple handlers to ensure that they perform distinct operations, otherwise
    * duplicate functionality might be unintentionally introduced.
    *
-   * @param eventHandler A {@link PluginEventHandler} that can handle various types of events emitted by this ledger
+   * @param eventHandler A {@link PluginEventListener} that can handle various types of events emitted by this ledger
    *                     plugin.
    *
    * @return A {@link UUID} representing the unique identifier of the handler, as seen by this ledger plugin.
    */
-  UUID addPluginEventHandler(PluginEventHandler eventHandler);
+  void addPluginEventListener(UUID eventHandlerId, PluginEventListener eventHandler);
 
   /**
    * Removes an event handler from the collection of handlers registered with this ledger plugin.
@@ -107,7 +78,7 @@ public interface Plugin<T extends PluginSettings> {
    * @param eventHandlerId A {@link UUID} representing the unique identifier of the handler, as seen by this ledger
    *                       plugin.
    */
-  void removePluginEventHandler(UUID eventHandlerId);
+  void removePluginEventListener(UUID eventHandlerId);
 
   /**
    * <p>Set the callback which is used to handle incoming prepared data packets. The handler should expect one
@@ -122,25 +93,26 @@ public interface Plugin<T extends PluginSettings> {
    * <p>If an incoming packet is received by the plugin, but no handler is registered, the plugin SHOULD respond with
    * an error.</p>
    *
-   * @param ilpDataHandler An instance of {@link IlpDataHandler}.
+   * @param dataHandler An instance of {@link BilateralDataHandler}.
    */
-  void registerDataHandler(IlpDataHandler ilpDataHandler) throws DataHandlerAlreadyRegisteredException;
+  void registerDataHandler(BilateralDataHandler dataHandler) throws DataHandlerAlreadyRegisteredException;
 
   /**
-   * Accessor for the currently registered {@link IlpDataHandler}. Throws a {@link RuntimeException} if no handler is
-   * registered, because callers should not be trying to access the handler if none is registered (in other words, a
-   * Plugin is not in a valid state until it has handlers registered).
+   * Accessor for the currently registered (though optionally-present) {@link BilateralDataHandler}. Throws a {@link
+   * RuntimeException} if no handler is registered, because callers should not be trying to access the handler if none
+   * is registered (in other words, a Plugin is not in a valid state until it has handlers registered)
    *
-   * @return The currently registered {@link IlpDataHandler}.
-   *
-   * @throws {@link RuntimeException} if no handler is registered.
+   * @return The currently registered {@link BilateralDataHandler}.
    */
-  IlpDataHandler getDataHandler();
+  default BilateralDataHandler safeGetDataHandler() {
+    return this.getDataHandler()
+        .orElseThrow(() -> new RuntimeException("You MUST register an IlpDataHandler before using this plugin!"));
+  }
 
   /**
-   * Removes the currently used {@link IlpDataHandler}. This has the same effect as if {@link
-   * #registerDataHandler(IlpDataHandler)} had never been called. If no data handler is currently set, this method does
-   * nothing.
+   * Removes the currently used {@link BilateralDataHandler}. This has the same effect as if {@link
+   * #registerDataHandler(BilateralDataHandler)} had never been called. If no data handler is currently set, this method
+   * does nothing.
    */
   void unregisterDataHandler();
 
@@ -156,59 +128,27 @@ public interface Plugin<T extends PluginSettings> {
    * <p>If incoming money is received by the plugin, but no handler is registered, the plugin SHOULD return an error
    * (and MAY return the money.)</p>
    *
-   * @param ilpMoneyHandler An instance of {@link IlpMoneyHandler}.
+   * @param moneyHandler An instance of {@link BilateralMoneyHandler}.
    */
-  void registerMoneyHandler(IlpMoneyHandler ilpMoneyHandler) throws MoneyHandlerAlreadyRegisteredException;
+  void registerMoneyHandler(BilateralMoneyHandler moneyHandler) throws MoneyHandlerAlreadyRegisteredException;
 
   /**
    * Removes the currently used money handler. This has the same effect as if {@link
-   * #registerMoneyHandler(IlpMoneyHandler)} had never been called. If no money handler is currently set, this method
-   * does nothing.
+   * #registerMoneyHandler(BilateralMoneyHandler)} had never been called. If no money handler is currently set, this
+   * method does nothing.
    */
   void unregisterMoneyHandler();
 
   /**
-   * Accessor for the currently registered {@link IlpMoneyHandler}. Throws a {@link RuntimeException} if no handler is
-   * registered, * because callers should not be trying to access the handler if none is registered (in other words, a
-   * Plugin is not * in a valid state until it has handlers registered).
+   * Accessor for the currently registered (though optionally-present) {@link BilateralMoneyHandler}. Throws a {@link
+   * RuntimeException} if no handler is registered, because callers should not be trying to access the handler if none
+   * is registered (in other words, a Plugin is not in a valid state until it has handlers registered)
    *
-   * @return The currently registered {@link IlpMoneyHandler}.
+   * @return The currently registered {@link BilateralMoneyHandler}.
    */
-  IlpMoneyHandler getMoneyHandler();
-
-  /**
-   * Handles an incoming {@link InterledgerPreparePacket} for a single plugin, sent from a remote peer.
-   */
-  @FunctionalInterface
-  interface IlpDataHandler {
-
-    /**
-     * Handles an incoming ILP fulfill packet.
-     *
-     * @param sourceAccountAddress
-     * @param sourcePreparePacket
-     *
-     * @return A {@link CompletableFuture} that resolves to an {@link InterledgerFulfillPacket}.
-     */
-    CompletableFuture<InterledgerResponsePacket> handleIncomingData(
-        InterledgerAddress sourceAccountAddress, InterledgerPreparePacket sourcePreparePacket
-    );
+  default BilateralMoneyHandler safeGetMoneyHandler() {
+    return this.getMoneyHandler()
+        .orElseThrow(
+            () -> new RuntimeException("You MUST register an BilateralMoneyHandler before using this plugin!"));
   }
-
-  /**
-   * Handles an incoming message to settle an account with a remote peer, managed by a plugin.
-   */
-  @FunctionalInterface
-  interface IlpMoneyHandler {
-
-    /**
-     * Handles an incoming ILP fulfill packet.
-     *
-     * @param amount
-     *
-     * @return A {@link CompletableFuture} that resolves to {@link Void}.
-     */
-    CompletableFuture<Void> handleIncomingMoney(BigInteger amount) throws InterledgerProtocolException;
-  }
-
 }

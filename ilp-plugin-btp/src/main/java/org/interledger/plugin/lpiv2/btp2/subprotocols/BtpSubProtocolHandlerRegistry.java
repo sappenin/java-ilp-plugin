@@ -2,6 +2,10 @@ package org.interledger.plugin.lpiv2.btp2.subprotocols;
 
 import org.interledger.btp.BtpSubProtocol;
 import org.interledger.btp.BtpSubProtocol.ContentType;
+import org.interledger.core.asn.framework.InterledgerCodecContextFactory;
+import org.interledger.encoding.asn.framework.CodecContext;
+import org.interledger.plugin.lpiv2.btp2.subprotocols.auth.AuthBtpSubprotocolHandler;
+import org.interledger.plugin.lpiv2.btp2.subprotocols.ilp.IlpBtpSubprotocolHandler;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -22,17 +26,27 @@ public class BtpSubProtocolHandlerRegistry {
   private Map<String, AbstractBtpSubProtocolHandler> textHandlers = new HashMap<>();
   private Map<String, AbstractBtpSubProtocolHandler> octetStreamHandlers = new HashMap<>();
 
-  /**
-   * Accessor for the BTP Handler identified by {@code subProtocolName}.
-   *
-   * @param subProtocolName A {@link String} that uniquely identifies the handler being added.
-   *
-   * @return A {@link AbstractBtpSubProtocolHandler} corresponding to the supplied sub-protocol name.
-   */
-//  public Optional<AbstractBtpSubProtocolHandler> getHandler(final String subProtocolName) {
-//    Objects.requireNonNull(subProtocolName, "subProtocolName must not be null!");
-//    return this.getHandler(subProtocolName, ContentType.MIME_APPLICATION_OCTET_STREAM);
-//  }
+  public BtpSubProtocolHandlerRegistry(final BtpAuthenticationService btpAuthenticationService) {
+    this(InterledgerCodecContextFactory.oer(), btpAuthenticationService);
+  }
+
+  public BtpSubProtocolHandlerRegistry(
+      final CodecContext ilpCodecContext, final BtpAuthenticationService btpAuthenticationService
+  ) {
+    Objects.requireNonNull(ilpCodecContext);
+    Objects.requireNonNull(btpAuthenticationService);
+
+    // Register the Auth BTP sub-protocol handler.
+    this.putHandler(
+        BTP_SUB_PROTOCOL_AUTH, ContentType.MIME_APPLICATION_OCTET_STREAM,
+        new AuthBtpSubprotocolHandler(btpAuthenticationService)
+    );
+
+    // Register the ILP BTP sub-protocol handler.
+    this.putHandler(
+        BTP_SUB_PROTOCOL_ILP, ContentType.MIME_APPLICATION_OCTET_STREAM, new IlpBtpSubprotocolHandler(ilpCodecContext)
+    );
+  }
 
   /**
    * Accessor for the BTP Handler identified by {@code subProtocolName}.

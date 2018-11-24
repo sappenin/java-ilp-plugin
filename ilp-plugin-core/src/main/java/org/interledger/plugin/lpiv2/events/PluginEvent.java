@@ -1,14 +1,15 @@
 package org.interledger.plugin.lpiv2.events;
 
-import org.interledger.core.InterledgerAddress;
+import org.interledger.plugin.lpiv2.Plugin;
 
 /**
- * A parent interface for all lpi2 events.
+ * A parent interface for all LPIv2 events.
  */
 public interface PluginEvent {
 
   /**
-   * The ILP Address-prefix of the LPIv2 plugin that emitted this event.
+   * Accessor for the Plugin that emitted this event.
    */
-  InterledgerAddress getPeerAccountAddress();
+  Plugin<?> getPlugin();
+
 }

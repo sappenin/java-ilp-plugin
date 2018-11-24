@@ -17,6 +17,7 @@ import org.interledger.btp.BtpSubProtocols;
 import org.interledger.btp.BtpTransfer;
 import org.interledger.btp.ImmutableBtpSessionCredentials;
 import org.interledger.plugin.lpiv2.btp2.subprotocols.AbstractBtpSubProtocolHandler;
+import org.interledger.plugin.lpiv2.btp2.subprotocols.BtpAuthenticationService;
 
 import com.google.common.base.Preconditions;
 import org.slf4j.Logger;
@@ -35,6 +36,12 @@ import java.util.concurrent.CompletableFuture;
 public class AuthBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(AuthBtpSubprotocolHandler.class);
+
+  private final BtpAuthenticationService btpAuthenticationService;
+
+  public AuthBtpSubprotocolHandler(final BtpAuthenticationService btpAuthenticationService) {
+    this.btpAuthenticationService = Objects.requireNonNull(btpAuthenticationService);
+  }
 
   /**
    * Construct a {@link BtpSubProtocol} response for using the <tt>auth</tt> sub-protocol.
@@ -57,44 +64,43 @@ public class AuthBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
 
     LOGGER.debug("Incoming Auth Message: {}", incomingBtpMessage);
 
-    try {
-      // Before anything else, when a client connects to a server, it sends a special Message request. Its primary
-      // protocolData entry MUST have name 'auth', content type MIME_APPLICATION_OCTET_STREAM, and empty data.
-      Preconditions.checkArgument(
-          incomingBtpMessage.getPrimarySubProtocol().getProtocolName()
-              .equals(BTP_SUB_PROTOCOL_AUTH),
-          String.format("Expected BTP SubProtocol with Name: `%s`", BTP_SUB_PROTOCOL_AUTH)
-      );
+    // Before anything else, when a client connects to a server, it sends a special Message request. Its primary
+    // protocolData entry MUST have name 'auth', content type MIME_APPLICATION_OCTET_STREAM, and empty data.
+    final String primarySubProtocolName = incomingBtpMessage.getPrimarySubProtocol().getProtocolName();
+    Preconditions.checkArgument(
+        BTP_SUB_PROTOCOL_AUTH.equals(primarySubProtocolName),
+        String.format("Expected BTP SubProtocol `%s` but encountered `%s` instead.", BTP_SUB_PROTOCOL_AUTH,
+            primarySubProtocolName)
+    );
 
-      // `auth_username` is optional...
-      final Optional<String> auth_user = incomingBtpMessage.getSubProtocol(BTP_SUB_PROTOCOL_AUTH_USERNAME)
-          .map(BtpSubProtocol::getDataAsString);
+    // `auth_username` is optional...
+    final Optional<String> auth_username = incomingBtpMessage.getSubProtocol(BTP_SUB_PROTOCOL_AUTH_USERNAME)
+        .map(BtpSubProtocol::getDataAsString);
 
-      // ...among the secondary entries, there MUST be a UTF-8 'auth_token' entry
-      final String auth_token = incomingBtpMessage.getSubProtocol(BTP_SUB_PROTOCOL_AUTH_TOKEN)
-          .map(BtpSubProtocol::getDataAsString)
-          .orElseThrow(
-              () -> new BtpRuntimeException(BtpErrorCode.F00_NotAcceptedError,
-                  String.format("Expected BTP SubProtocol with Id: %s", BTP_SUB_PROTOCOL_AUTH_TOKEN))
-          );
-
-      if (isValidAuthToken(auth_user, auth_token)) {
-        this.storeAuthInBtpSession(btpSession, auth_user, auth_token);
-        // SUCCESS! Respond with an empty Ack message...
-        return CompletableFuture.supplyAsync(() -> Optional.of(AuthBtpSubprotocolHandler.authResponse()))
-            .toCompletableFuture();
-      } else {
-        throw new BtpRuntimeException(BtpErrorCode.F00_NotAcceptedError,
-            String.format("invalid %s", BTP_SUB_PROTOCOL_AUTH_TOKEN)
+    // ...among the secondary entries, there MUST be a UTF-8 'auth_token' entry
+    final String auth_token = incomingBtpMessage.getSubProtocol(BTP_SUB_PROTOCOL_AUTH_TOKEN)
+        .map(BtpSubProtocol::getDataAsString)
+        .orElseThrow(
+            () -> new BtpRuntimeException(BtpErrorCode.F00_NotAcceptedError,
+                String.format("Expected BTP SubProtocol with Id: %s", BTP_SUB_PROTOCOL_AUTH_TOKEN))
         );
-      }
-    } catch (BtpRuntimeException e) {
-      throw e;
-    } catch (Exception e) {
-      throw new BtpRuntimeException(BtpErrorCode.F00_NotAcceptedError, e.getMessage(), e);
+
+    final boolean authenticated;
+    authenticated = btpAuthenticationService.isValidAuthToken(auth_token, auth_username.get());
+    if (authenticated) {
+      this.storeAuthInBtpSession(btpSession, auth_token, auth_username);
+    }
+
+    if (authenticated) {
+      // SUCCESS! Respond with an empty Ack message...
+      return CompletableFuture.supplyAsync(() -> Optional.of(AuthBtpSubprotocolHandler.authResponse()))
+          .toCompletableFuture();
+    } else {
+      throw new BtpRuntimeException(BtpErrorCode.F00_NotAcceptedError,
+          String.format("invalid %s", BTP_SUB_PROTOCOL_AUTH_TOKEN)
+      );
     }
   }
-
 
   @Override
   public CompletableFuture<Optional<BtpSubProtocol>> handleSubprotocolDataForBtpTransfer(
@@ -120,7 +126,6 @@ public class AuthBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
     return CompletableFuture.completedFuture(null);
   }
 
-
   @Override
   public CompletableFuture<Void> handleSubprotocolDataForBtpError(
       final BtpSession btpSession, final BtpError incomingBtpError
@@ -137,57 +142,72 @@ public class AuthBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
   // Private Helpers
   //////////////////
 
+//  /**
+//   * Checks to see if the provided <tt>incomingAuthToken</tt> matches the secret configured for this peer.
+//   *
+//   * @param incomingAuthToken An optionally-present {@link String} containing an auth_token for this session.
+//   *
+//   * @return {@code true} if the auth_token is valid; {@code false} otherwise.
+//   */
+//  private boolean isValidAuthToken(
+//      final Optional<String> incomingAuthUser,
+//      final String incomingAuthToken
+//  ) {
+//    Objects.requireNonNull(incomingAuthToken, "incomingAuthToken must not be null!");
+//
+//    if (incomingAuthToken.equals("")) {
+//      return false;
+//    }
+//    // TODO: Compare the presented auth_token with a secret configured for this plugin. As a simplistic example, a
+//    // plugin might be configured on a particular port, and will have a `secret` defined. However, this is surprising
+//    // since it seems like we would want to run multiple BTP plugins on the same port. For example, plugin1 and
+//    // plugin2. For that to work, we would need some sort of identifier to link a connection (WsSession) to the
+//    // plugin instance. However, it seems like this is not the current design of the Plugin interface. Instead, LPIv2
+//    // seems to assume that only a given channel will run on a given Websocket port. If this is the case, then we
+//    // would need to configure a new listener/port combination for each plugin in the SpringBtpConfig. If that holds,
+//    // then a particular BtpSocketHandler would have only a single secret, which can be found here. However, this
+//    // doesn't feel right -- adding a new port per plugin seems like a difficult system to scale in a production
+//    // environment, so more research is required before implementing that.
+//
+//    //    if (incomingAuthUser.equals(this.expectedCredentials.username()) && incomingAuthToken.equals
+//    // (this.expectedCredentials.token())) {
+//    //      return true;
+//    //    } else {
+//    //      return false;
+//    //    }
+//    return true;
+//  }
+
   /**
-   * Checks to see if the provided <tt>incomingAuthToken</tt> matches the secret configured for this peer.
+   * Store the username and token into this Websocket session.
    *
-   * @param incomingAuthToken An optionally-present {@link String} containing an auth_token for this session.
-   *
-   * @return {@code true} if the auth_token is valid; {@code false} otherwise.
+   * @param token An authorization token used to authenticate the indicated user.
    */
-  private boolean isValidAuthToken(
-      final Optional<String> incomingAuthUser,
-      final String incomingAuthToken
-  ) {
-    Objects.requireNonNull(incomingAuthToken, "incomingAuthToken must not be null!");
+  private void storeAuthInBtpSession(final BtpSession btpSession, final String token) {
+    Objects.requireNonNull(btpSession);
+    Objects.requireNonNull(token);
 
-    if (incomingAuthToken.equals("")) {
-      return false;
-    }
-    // TODO: Compare the presented auth_token with a secret configured for this plugin. As a simplistic example, a
-    // plugin might be configured on a particular port, and will have a `secret` defined. However, this is surprising
-    // since it seems like we would want to run multiple BTP plugins on the same port. For example, plugin1 and
-    // plugin2. For that to work, we would need some sort of identifier to link a connection (WsSession) to the
-    // plugin instance. However, it seems like this is not the current design of the Plugin interface. Instead, LPIv2
-    // seems to assume that only a given channel will run on a given Websocket port. If this is the case, then we
-    // would need to configure a new listener/port combination for each plugin in the SpringBtpConfig. If that holds,
-    // then a particular BtpSocketHandler would have only a single secret, which can be found here. However, this
-    // doesn't feel right -- adding a new port per plugin seems like a difficult system to scale in a production
-    // environment, so more research is required before implementing that.
-
-    //    if (incomingAuthUser.equals(this.expectedCredentials.username()) && incomingAuthToken.equals
-    // (this.expectedCredentials.token())) {
-    //      return true;
-    //    } else {
-    //      return false;
-    //    }
-    return true;
+    final BtpSessionCredentials credentials = ImmutableBtpSessionCredentials.builder()
+        .authToken(token)
+        .build();
+    btpSession.setValidAuthentication(credentials);
   }
 
   /**
    * Store the username and token into this Websocket session.
    *
-   * @param username The username of the signed-in account.
    * @param token    An authorization token used to authenticate the indicated user.
+   * @param username The username of the signed-in account.
    */
-  private void storeAuthInBtpSession(
-      final BtpSession btpSession, final Optional<String> username, final String token
-  ) {
-    Objects.requireNonNull(username);
+  private void storeAuthInBtpSession(final BtpSession btpSession, final String token, final Optional<String> username) {
+    Objects.requireNonNull(btpSession);
     Objects.requireNonNull(token);
+    Objects.requireNonNull(username);
 
-    final String name = username.orElse(token);
-
-    final BtpSessionCredentials credentials = ImmutableBtpSessionCredentials.builder().authToken(name).build();
+    final BtpSessionCredentials credentials = ImmutableBtpSessionCredentials.builder()
+        .authUsername(username)
+        .authToken(token)
+        .build();
     btpSession.setValidAuthentication(credentials);
   }
 

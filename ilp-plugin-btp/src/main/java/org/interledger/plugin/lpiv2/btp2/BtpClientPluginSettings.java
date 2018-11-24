@@ -5,6 +5,7 @@ import org.immutables.value.Value;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 @Value.Immutable
 public interface BtpClientPluginSettings extends BtpPluginSettings {
@@ -58,23 +59,26 @@ public interface BtpClientPluginSettings extends BtpPluginSettings {
     Objects.requireNonNull(builder);
     Objects.requireNonNull(customSettings);
 
+    Optional.ofNullable(customSettings.get(KEY_REMOTE_PEER_SCHEME))
+        .map(Object::toString)
+        .ifPresent(builder::remotePeerScheme);
+
+    Optional.ofNullable(customSettings.get(KEY_REMOTE_PEER_HOSTNAME))
+        .map(Object::toString)
+        .ifPresent(builder::remotePeerHostname);
+
+    Optional.ofNullable(customSettings.get(KEY_REMOTE_PEER_PORT))
+        .map(Object::toString)
+        .ifPresent(builder::remotePeerPort);
+
+    Optional.ofNullable(customSettings.get(KEY_USER_NAME))
+        .map(Object::toString)
+        .ifPresent(builder::authUsername);
+
     return builder
         .secret(
             Objects.requireNonNull(customSettings.get(KEY_SECRET), "`secret` not found in customSettings!").toString()
-        )
-        .remotePeerScheme(
-            Objects
-                .requireNonNull(customSettings.get(KEY_REMOTE_PEER_SCHEME),
-                    "`remotePeerScheme` not found in customSettings!")
-                .toString()
-        )
-        .remotePeerHostname(
-            Objects.requireNonNull(customSettings.get(KEY_REMOTE_PEER_HOSTNAME),
-                "`remotePeerHostname` not found in customSettings!").toString()
-        )
-        .remotePeerPort(Objects
-            .requireNonNull(customSettings.get(KEY_REMOTE_PEER_PORT), "`remotePeerPort` not found in customSettings!")
-            .toString());
+        );
   }
 
   /**

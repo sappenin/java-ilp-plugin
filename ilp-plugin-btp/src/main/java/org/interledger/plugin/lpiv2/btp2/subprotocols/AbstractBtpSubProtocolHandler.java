@@ -9,6 +9,7 @@ import org.interledger.btp.BtpRuntimeException;
 import org.interledger.btp.BtpSession;
 import org.interledger.btp.BtpSubProtocol;
 import org.interledger.btp.BtpTransfer;
+import org.interledger.core.InterledgerAddress;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -17,10 +18,23 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Handles incoming sub-protocol data from a BTP connection. Sub-protocol data is contained in the data portion of a
  * particular {@link BtpSubProtocol}, as found in {@link BtpMessage#getSubProtocols()}.
- *
- * @param <T> The type of object contained in the BTP Subprotocol payload.
  */
-public abstract class AbstractBtpSubProtocolHandler<T> {
+public abstract class AbstractBtpSubProtocolHandler {
+
+//  private final ThreadLocal<InterledgerAddress> localNodeAddressThreadLocal;
+//
+//  protected AbstractBtpSubProtocolHandler() {
+//    this.localNodeAddressThreadLocal = new ThreadLocal<>();
+//  }
+//
+//  public InterledgerAddress getLocalNodeAddressThreadLocal() {
+//    return this.localNodeAddressThreadLocal.get();
+//  }
+//
+//  public void setLocalNodeAddressThreadLocal(final InterledgerAddress interledgerAddress) {
+//    Objects.requireNonNull(interledgerAddress);
+//    localNodeAddressThreadLocal.set(interledgerAddress);
+//  }
 
   /**
    * <p>Handle a primary {@link BtpSubProtocol} whose data payload should be treated as binary data.</p>
@@ -90,7 +104,8 @@ public abstract class AbstractBtpSubProtocolHandler<T> {
    * whether an incoming message corresponds to the input our output portion of a particular synchronous method.</p>
    *
    * @param btpSession         A {@link BtpSession} with information about the current BTP Session.
-   * @param incomingBtpMessage A {@link BtpMessage} that contains the data for the BTP sub-protocol to be handled.
+   * @param incomingBtpMessage A {@link BtpMessage} sent from a remote peer that contains the data for the BTP
+   *                           sub-protocol to be handled.
    *
    * @return A {@link BtpSubProtocol} containing properly encoded response data from this handler. Note that per BTP,
    *     only primary sub-protocols should send a response. If a secondary sub-protocol needs a response, a separate BTP

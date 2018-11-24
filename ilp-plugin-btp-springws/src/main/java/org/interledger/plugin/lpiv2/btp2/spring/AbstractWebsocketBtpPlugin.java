@@ -10,9 +10,7 @@ import org.interledger.btp.BtpPacketMapper;
 import org.interledger.btp.BtpResponse;
 import org.interledger.btp.BtpRuntimeException;
 import org.interledger.btp.BtpSession;
-import org.interledger.btp.BtpSessionCredentials;
 import org.interledger.btp.BtpTransfer;
-import org.interledger.btp.ImmutableBtpSessionCredentials;
 import org.interledger.core.InterledgerPreparePacket;
 import org.interledger.encoding.asn.framework.CodecContext;
 import org.interledger.plugin.lpiv2.btp2.AbstractBtpPlugin;
@@ -23,8 +21,6 @@ import org.interledger.plugin.lpiv2.btp2.spring.converters.BtpPacketToBinaryMess
 import org.interledger.plugin.lpiv2.btp2.subprotocols.BtpSubProtocolHandlerRegistry;
 
 import com.google.common.collect.Maps;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.WebSocketMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -41,22 +37,20 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 
 /**
- * <p>An extension of {@link AbstractBtpPlugin} that operates over a Websocket transport with a Websocket
+ * <p>An extension of {@link AbstractBtpPlugin} that operates over a Websocket mux with a Websocket
  * implementation provided by the Spring Framework. This class is abstract because the implementation that uses a
  * Websocket Client is different from the Websocket implementation that operates using a Websocket server, though this
  * class contains all logic and functionality that is common between the two.</p>
  */
-public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> extends AbstractBtpPlugin<S> {
+public abstract class AbstractWebsocketBtpPlugin<PS extends BtpPluginSettings> extends AbstractBtpPlugin<PS> {
 
-  // TODO: Make this inherited. Better to know the concrete handler that emitted this as opposed to this abstract class
-  // because if we know the concrete class, we can investigate from there, but if there are multiple different implementations
-  // of this abstract class, we won't know which one is having trouble.
-  private static final Logger LOGGER = LoggerFactory.getLogger(AbstractWebsocketBtpPlugin.class);
   protected final BinaryMessageToBtpPacketConverter binaryMessageToBtpPacketConverter;
   protected final BtpPacketToBinaryMessageConverter btpPacketToBinaryMessageConverter;
+
+  // TODO: Use WeakHashMap?
   // When the client sends a request out to a peer, it will wait for an async response from that peer. When that
   // response comes back, it will be combined with a pending response.
-  protected final Map<Long, CompletableFuture<BtpResponse>> pendingResponses;
+  protected final Map<Long, CompletableFuture<Optional<BtpResponse>>> pendingResponses;
 
   // Starts life as `empty`. For a BTP plugin acting as a server, this will be populated once the WebSocket server is
   // turned on (Note that this implementation only supports a single authenticated webSocketSession). In the case of
@@ -67,7 +61,7 @@ public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> ex
    * Required-args Constructor.
    */
   public AbstractWebsocketBtpPlugin(
-      final S pluginSettings,
+      final PS pluginSettings,
       final CodecContext ilpCodecContext,
       final CodecContext btpCodecContext,
       final BtpSubProtocolHandlerRegistry btpSubProtocolHandlerRegistry,
@@ -78,6 +72,30 @@ public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> ex
     this.binaryMessageToBtpPacketConverter = binaryMessageToBtpPacketConverter;
     this.btpPacketToBinaryMessageConverter = btpPacketToBinaryMessageConverter;
     this.pendingResponses = Maps.newConcurrentMap();
+  }
+
+  /**
+   * Required-args Constructor.
+   */
+  public AbstractWebsocketBtpPlugin(
+      final PS pluginSettings,
+      final CodecContext ilpCodecContext,
+      final CodecContext btpCodecContext,
+      final BtpSubProtocolHandlerRegistry btpSubProtocolHandlerRegistry,
+      final BinaryMessageToBtpPacketConverter binaryMessageToBtpPacketConverter,
+      final BtpPacketToBinaryMessageConverter btpPacketToBinaryMessageConverter,
+      final WebSocketSession webSocketSession
+  ) {
+    this(
+        pluginSettings,
+        ilpCodecContext,
+        btpCodecContext,
+        btpSubProtocolHandlerRegistry,
+        binaryMessageToBtpPacketConverter,
+        btpPacketToBinaryMessageConverter
+    );
+
+    this.webSocketSession = Optional.of(webSocketSession);
   }
 
   /**
@@ -96,25 +114,18 @@ public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> ex
     Objects.requireNonNull(webSocketSession);
     Objects.requireNonNull(incomingBinaryMessage);
 
-    // TODO: Is the underlying map already synchronized?
-    final BtpSession btpSession;
-    synchronized (webSocketSession) {
-      btpSession = (BtpSession) webSocketSession.getAttributes()
-          .getOrDefault("btp-session", new BtpSession(this.getPluginSettings().getPeerAccountAddress()));
-    }
-
-    // If there's a problem deserializing the BtpPacket from the BinaryMessage, then close the connection and
+    // If there's a problem de-serializing the BtpPacket from the BinaryMessage, then close the connection and
     // return empty. This is one of the "tricky cases" as defined in the BTP spec where we don't want to get into
     // an infinite loop.
     final BtpPacket incomingBtpPacket;
     try {
       incomingBtpPacket = this.binaryMessageToBtpPacketConverter.convert(incomingBinaryMessage);
     } catch (BtpConversionException btpConversionException) {
-      LOGGER.error("Unable to deserialize BtpPacket from incomingBinaryMessage: {}", btpConversionException);
+      logger.error("Unable to deserialize BtpPacket from incomingBinaryMessage: {}", btpConversionException);
       try {
         this.disconnect().get();
       } catch (Exception e) {
-        LOGGER.error(e.getMessage(), e);
+        logger.error(e.getMessage(), e);
       }
       return Optional.empty();
     }
@@ -126,9 +137,10 @@ public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> ex
         @Override
         protected Optional<BinaryMessage> mapBtpMessage(final BtpMessage incomingBtpMessage) {
           Objects.requireNonNull(incomingBtpMessage);
-          LOGGER.trace("incomingBtpMessage: {}", incomingBtpMessage);
+          logger.trace("incomingBtpMessage: {}", incomingBtpMessage);
 
-          // If incomingBtpMessage is a BtpMessage...?
+          // A WebSocketSession always has a BtpSession, but it may not be authenticated...
+          final BtpSession btpSession = BtpSessionUtils.getBtpSessionFromWebSocketSession(webSocketSession);
           final BtpResponse btpResponse = onIncomingBtpMessage(btpSession, incomingBtpMessage);
           return Optional.of(btpPacketToBinaryMessageConverter.convert(btpResponse));
         }
@@ -136,7 +148,7 @@ public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> ex
         @Override
         protected Optional<BinaryMessage> mapBtpTransfer(final BtpTransfer incomingBtpTransfer) {
           Objects.requireNonNull(incomingBtpTransfer);
-          LOGGER.trace("incomingBtpMessage: {}", incomingBtpTransfer);
+          logger.trace("incomingBtpMessage: {}", incomingBtpTransfer);
           throw new RuntimeException("Not yet implemented!");
         }
 
@@ -144,8 +156,8 @@ public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> ex
         protected Optional<BinaryMessage> mapBtpError(BtpError incomingBtpError) {
           Objects.requireNonNull(incomingBtpError);
 
-          LOGGER.error("Incoming BtpError from `{}` with message `{}`",
-              btpSession.getPeerAccountAddress(),
+          logger.error("Incoming BtpError from `{}` with message `{}`",
+              getPluginSettings().getPeerAccountAddress(),
               new String(incomingBtpError.getErrorData())
           );
 
@@ -157,7 +169,7 @@ public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> ex
         protected Optional<BinaryMessage> mapBtpResponse(final BtpResponse incomingBtpResponse) {
           Objects.requireNonNull(incomingBtpResponse);
 
-          LOGGER.trace("IncomingBtpResponse: {} ", incomingBtpResponse);
+          logger.trace("IncomingBtpResponse: {} ", incomingBtpResponse);
 
           // Generally, BTP always returns a response to the caller, even under error conditions. There are two
           // exceptions, however, listed as "tricky cases" in the BTP specification:
@@ -169,7 +181,7 @@ public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> ex
           // case here. However, if an unexpected packet is encountered, we need to emit this error, but then return
           // null to the caller of this method so that no response is returned to the BTP peer.
 
-          final CompletableFuture<BtpResponse> pendingResponse = pendingResponses
+          final CompletableFuture<Optional<BtpResponse>> pendingResponse = pendingResponses
               .get(incomingBtpResponse.getRequestId());
 
           // If there's a pending response, then connect the incoming response to the pending response. If there is no
@@ -179,7 +191,7 @@ public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> ex
 
             //Should we call onIncomingBtpResponse here?
 
-            //LOGGER.error("No PendingResponse available to connect to incomingBtpResponse: {}", incomingBtpResponse);
+            logger.error("No PendingResponse available to connect to incomingBtpResponse: {}", incomingBtpResponse);
             return Optional.empty();
           } else {
             try {
@@ -215,22 +227,16 @@ public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> ex
                     // The Happy Path...
                     else {
                       // Getting here means that there is a response to be handled, so connect it to the pendingResponse.
-
-                      // TODO: FIXME!
-                      BtpSessionCredentials btpSessionCredentials = ImmutableBtpSessionCredentials.builder()
-                          .authToken(btpSession.getPeerAccountAddress().getValue()).build();
-                      btpSession.setValidAuthentication(btpSessionCredentials);
-
-                      pendingResponse.complete(incomingBtpResponse);
-
-                      //final BtpResponse btpResponse = (BtpResponse) btpResponseToConnectAsObject;
-                      //return btpPacketToBinaryMessageConverter.convert(btpResponse);
+                      pendingResponse.complete(Optional.of(incomingBtpResponse));
+                      // The response is wired back through the pending-response, so return null here so that nothing
+                      // happens on this thread.
                       return (BinaryMessage) null;
                     }
 
                   }).get();
 
-              // Convert to BinaryMessage since anyOf uses Object...
+              // Convert to BinaryMessage since anyOf uses Object...generally, this should always return Optional#empty
+              // because BTP responses don't result in another response to the peer who sent the original response.
               return Optional.ofNullable((BinaryMessage) result);
 
               //               .exceptionally(ex -> {
@@ -276,7 +282,7 @@ public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> ex
         }
       }.map(incomingBtpPacket);
     } catch (BtpRuntimeException e) {
-      LOGGER.error(e.getMessage(), e);
+      logger.error(e.getMessage(), e);
       // If anything throws a BTP Exception, then return a BTP Error on the channel...
       final BtpError btpError = e.toBtpError(incomingBtpPacket.getRequestId());
       return Optional.ofNullable(btpPacketToBinaryMessageConverter.convert(btpError));
@@ -293,7 +299,7 @@ public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> ex
    *     BtpRuntimeException}.
    */
   @Override
-  protected CompletableFuture<BtpResponse> doSendDataOverBtp(final BtpPacket btpPacket) {
+  protected CompletableFuture<Optional<BtpResponse>> doSendDataOverBtp(final BtpPacket btpPacket) {
     Objects.requireNonNull(btpPacket);
 
     // Send the BtpMessage to the remote peer using the websocket client....but first translate the BtpMessage to a
@@ -320,16 +326,18 @@ public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> ex
    *
    * @return
    */
-  protected CompletableFuture<BtpResponse> sendMessageWithPendingRepsonse(final long requestId,
-      final WebSocketMessage webSocketMessage) {
+  protected CompletableFuture<Optional<BtpResponse>> sendMessageWithPendingRepsonse(
+      final long requestId, final WebSocketMessage webSocketMessage
+  ) {
     Objects.requireNonNull(webSocketMessage);
 
     return webSocketSession
         .map(session -> {
           try {
-            // TODO: Check for "isConnected"?
+            // Register the pending response first, just in-cae the Websocket returns faster than this method can complete.
+            final CompletableFuture<Optional<BtpResponse>> pendingResponse = registerPendingResponse(requestId);
             session.sendMessage(webSocketMessage);
-            return registerPendingResponse(requestId);
+            return pendingResponse;
           } catch (IOException e) {
             try {
               this.disconnect().get();
@@ -353,7 +361,7 @@ public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> ex
    * ┌──────────┐                                              ┌──────────┐
    * │          │────────────Request (Object)─────────────────▷│          │
    * │          │                                              │          │
-   * │          │             Reponse (Uncompleted             │          │
+   * │          │             Response (Uncompleted            │          │
    * │          │◁─────────────CompletableFuture)───△──────────┤          │
    * │          │                                   │          │          │
    * │          │                                   │          │          │
@@ -376,9 +384,14 @@ public abstract class AbstractWebsocketBtpPlugin<S extends BtpPluginSettings> ex
    *
    * @return
    */
-  protected final CompletableFuture<BtpResponse> registerPendingResponse(final long requestId) {
+  protected final CompletableFuture<Optional<BtpResponse>> registerPendingResponse(final long requestId) {
 
-    final CompletableFuture<BtpResponse> pendingResponse = CompletableFuture.supplyAsync(
+    // TODO: Use WeakReferences here to prevent memory leaks...
+
+    // This response will expire in the alotted time (see below). This response is immediately returned to the caller,
+    // but nothing happens until this CF expires, or the CF is completed from a different thread (by passing-in an
+    // incoming message, which is actually a response).
+    final CompletableFuture<Optional<BtpResponse>> pendingResponse = CompletableFuture.supplyAsync(
         () -> {
           // TODO: Configure this amount as a property.
           // TODO: Move back to seconds and set a default of 15.

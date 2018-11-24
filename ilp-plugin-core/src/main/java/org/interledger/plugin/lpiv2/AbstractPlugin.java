@@ -2,15 +2,16 @@ package org.interledger.plugin.lpiv2;
 
 import org.interledger.core.InterledgerPreparePacket;
 import org.interledger.core.InterledgerResponsePacket;
-import org.interledger.plugin.lpiv2.events.ImmutablePluginConnectedEvent;
-import org.interledger.plugin.lpiv2.events.ImmutablePluginDisconnectedEvent;
+import org.interledger.plugin.link.BilateralDataHandler;
+import org.interledger.plugin.link.BilateralMoneyHandler;
 import org.interledger.plugin.lpiv2.events.PluginConnectedEvent;
 import org.interledger.plugin.lpiv2.events.PluginDisconnectedEvent;
 import org.interledger.plugin.lpiv2.events.PluginErrorEvent;
 import org.interledger.plugin.lpiv2.events.PluginEventEmitter;
-import org.interledger.plugin.lpiv2.events.PluginEventHandler;
+import org.interledger.plugin.lpiv2.events.PluginEventListener;
 import org.interledger.plugin.lpiv2.exceptions.DataHandlerAlreadyRegisteredException;
 import org.interledger.plugin.lpiv2.exceptions.MoneyHandlerAlreadyRegisteredException;
+import org.interledger.plugin.lpiv2.settings.PluginSettings;
 
 import com.google.common.collect.Maps;
 import org.slf4j.Logger;
@@ -19,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import java.math.BigInteger;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -29,25 +31,21 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin<T> {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(AbstractPlugin.class);
+  protected final Logger logger = LoggerFactory.getLogger(this.getClass());
 
   /**
    * A typed representation of the configuration options passed-into this ledger plugin.
    */
   private final T pluginSettings;
 
-  /**
-   * Any registered event handlers for this plugin.
-   */
-  private final Map<UUID, PluginEventHandler> pluginEventHandlers = Maps.newConcurrentMap();
-
   // The emitter used by this plugin.
   private PluginEventEmitter pluginEventEmitter;
 
   private AtomicBoolean connected = new AtomicBoolean(NOT_CONNECTED);
 
-  private AtomicReference<IlpDataHandler> dataHandlerAtomicReference = new AtomicReference<>();
-  private AtomicReference<IlpMoneyHandler> moneyHandlerAtomicReference = new AtomicReference<>();
+  private AtomicReference<BilateralDataHandler> dataHandlerAtomicReference = new AtomicReference<>();
+  // TODO: Use a no-op MoneyHandler by default, and remove checks in connect/disconnect.
+  private AtomicReference<BilateralMoneyHandler> moneyHandlerAtomicReference = new AtomicReference<>();
 
   /**
    * Required-args Constructor which utilizes a default {@link PluginEventEmitter} that synchronously connects to any
@@ -57,7 +55,9 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
    */
   protected AbstractPlugin(final T pluginSettings) {
     this.pluginSettings = Objects.requireNonNull(pluginSettings);
-    this.pluginEventEmitter = new SyncPluginEventEmitter(this.pluginEventHandlers);
+
+    // TODO: Use EventBus instead
+    this.pluginEventEmitter = new SyncPluginEventEmitter();
   }
 
   /**
@@ -76,27 +76,22 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
 
   @Override
   public final CompletableFuture<Void> connect() {
-    LOGGER.info("[{}] `{}` connecting to `{}`...", this.pluginSettings.getPluginType(),
+    logger.info("[{}] `{}` connecting to `{}`...", this.pluginSettings.getPluginType(),
         this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
 
     try {
-      if (!this.isConnected()) {
-        // Do this first as a thread-safe gate.
-        this.connected.compareAndSet(NOT_CONNECTED, CONNECTED);
-
+      if (this.connected.compareAndSet(NOT_CONNECTED, CONNECTED)) {
         // Can't connect without handlers
-        if (this.dataHandlerAtomicReference.get() == null) {
+        if (this.getDataHandler().isPresent() == false) {
           throw new RuntimeException("You MUST register a dataHandler before connecting this plugin!");
         }
-        if (this.moneyHandlerAtomicReference.get() == null) {
+        if (this.getMoneyHandler().isPresent() == false) {
           throw new RuntimeException("You MUST register a moneyHandler before connecting this plugin!");
         }
 
         return this.doConnect().whenComplete((result, error) -> {
-          this.pluginEventEmitter.emitEvent(ImmutablePluginConnectedEvent.builder()
-              .peerAccountAddress(this.getPluginSettings().getPeerAccountAddress())
-              .build());
-          LOGGER.info("[{}] `{}` connected to `{}`", this.getPluginSettings().getPluginType(),
+          this.pluginEventEmitter.emitEvent(PluginConnectedEvent.of(this));
+          logger.info("[{}] `{}` connected to `{}`", this.getPluginSettings().getPluginType(),
               this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
         });
       } else {
@@ -116,19 +111,22 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
   public abstract CompletableFuture<Void> doConnect();
 
   @Override
+  public void close() {
+    this.disconnect().join();
+  }
+
+  @Override
   public final CompletableFuture<Void> disconnect() {
-    LOGGER.info("[{}] `{}` disconnecting from `{}`...", this.pluginSettings.getPluginType(),
+    logger.info("[{}] `{}` disconnecting from `{}`...", this.pluginSettings.getPluginType(),
         this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
 
     try {
       if (this.connected.compareAndSet(CONNECTED, NOT_CONNECTED)) {
         return this.doDisconnect().thenAccept(($) -> {
           // In either case above, emit the disconnect event.
-          this.pluginEventEmitter.emitEvent(ImmutablePluginDisconnectedEvent.builder()
-              .peerAccountAddress(this.getPluginSettings().getPeerAccountAddress())
-              .build());
+          this.pluginEventEmitter.emitEvent(PluginDisconnectedEvent.of(this));
 
-          LOGGER.info("[{}] `{}` disconnected from `{}`.", this.pluginSettings.getPluginType(),
+          logger.info("[{}] `{}` disconnected from `{}`.", this.pluginSettings.getPluginType(),
               this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
         });
       } else {
@@ -136,9 +134,7 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
       }
     } catch (RuntimeException e) {
       // Even if an exception is thrown above, be sure to emit the disconnected event.
-      this.pluginEventEmitter.emitEvent(ImmutablePluginDisconnectedEvent.builder()
-          .peerAccountAddress(this.getPluginSettings().getPeerAccountAddress())
-          .build());
+      this.pluginEventEmitter.emitEvent(PluginDisconnectedEvent.of(this));
       throw e;
     }
   }
@@ -163,19 +159,15 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
   }
 
   @Override
-  public UUID addPluginEventHandler(final PluginEventHandler pluginEventHandler) {
-    Objects.requireNonNull(pluginEventHandler);
-
-    final UUID handlerId = UUID.randomUUID();
-    this.pluginEventHandlers.put(handlerId, pluginEventHandler);
-
-    return handlerId;
+  public void addPluginEventListener(final UUID listenerId, final PluginEventListener pluginEventListener) {
+    Objects.requireNonNull(pluginEventListener);
+    this.pluginEventEmitter.addPluginEventListener(listenerId, pluginEventListener);
   }
 
   @Override
-  public void removePluginEventHandler(final UUID pluginEventHandler) {
-    Objects.requireNonNull(pluginEventHandler);
-    this.pluginEventHandlers.remove(pluginEventHandler);
+  public void removePluginEventListener(final UUID listenerId) {
+    Objects.requireNonNull(listenerId);
+    this.pluginEventEmitter.removePluginEventListener(listenerId);
   }
 
   @Override
@@ -183,50 +175,52 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
     return this.pluginSettings;
   }
 
-  /**
-   * Delegates to {@link #doSendData(InterledgerPreparePacket)} so that implementations don't need to worry about async
-   * behavior.
-   */
   @Override
-  public final CompletableFuture<InterledgerResponsePacket> sendData(final InterledgerPreparePacket preparePacket) {
+  public final CompletableFuture<Optional<InterledgerResponsePacket>> sendData(
+      final InterledgerPreparePacket preparePacket
+  ) {
     Objects.requireNonNull(preparePacket);
 
-    LOGGER.debug("[{}] sendData: {}", this.pluginSettings.getPluginType(), preparePacket);
+    logger.debug("[{}] sendData: {}", this.pluginSettings.getPluginType(), preparePacket);
 
     return this.doSendData(preparePacket);
   }
 
   /**
    * Perform the logic of sending a packet to a remote peer.
+   *
+   * @param preparePacket An {@link InterledgerPreparePacket} to send to the remote peer.l
    */
-  public abstract CompletableFuture<InterledgerResponsePacket> doSendData(final InterledgerPreparePacket preparePacket);
+  public abstract CompletableFuture<Optional<InterledgerResponsePacket>> doSendData(
+      final InterledgerPreparePacket preparePacket
+  );
 
   @Override
-  public void registerDataHandler(final IlpDataHandler ilpDataHandler) throws DataHandlerAlreadyRegisteredException {
+  public void registerDataHandler(final BilateralDataHandler ilpDataHandler)
+      throws DataHandlerAlreadyRegisteredException {
     Objects.requireNonNull(ilpDataHandler, "ilpDataHandler must not be null!");
     if (!this.dataHandlerAtomicReference.compareAndSet(null, ilpDataHandler)) {
       throw new DataHandlerAlreadyRegisteredException(
-          "IlpDataHandler may not be registered twice. Call unregisterDataHandler first!",
+          "BilateralDataHandler may not be registered twice. Call unregisterDataHandler first!",
           this.getPluginSettings().getLocalNodeAddress()
       );
     }
   }
 
   @Override
-  public IlpDataHandler getDataHandler() {
-    return dataHandlerAtomicReference.get();
+  public Optional<BilateralDataHandler> getDataHandler() {
+    return Optional.ofNullable(this.dataHandlerAtomicReference.get());
   }
 
-
   @Override
-  public IlpMoneyHandler getMoneyHandler() {
-    return moneyHandlerAtomicReference.get();
+  public Optional<BilateralMoneyHandler> getMoneyHandler() {
+    return Optional.ofNullable(moneyHandlerAtomicReference.get());
   }
 
   /**
-   * Removes the currently used {@link IlpDataHandler}. This has the same effect as if {@link
-   * #registerDataHandler(IlpDataHandler)} had never been called. If no data handler is currently set, this method does
-   * nothing.
+   * Removes the currently used {@link BilateralDataHandler}. This has the same effect as if {@link
+   * #registerDataHandler(BilateralDataHandler)} had never been called. If no data handler is currently set, this method
+   * does nothing.
    */
   @Override
   public void unregisterDataHandler() {
@@ -236,7 +230,7 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
   @Override
   public final CompletableFuture<Void> sendMoney(final BigInteger amount) {
     Objects.requireNonNull(amount);
-    LOGGER.info("[{}] settling {} units via {}!",
+    logger.info("[{}] settling {} units via {}!",
         this.pluginSettings.getPluginType(), amount, pluginSettings.getPeerAccountAddress()
     );
     // Handles checked and unchecked exceptions properly.
@@ -261,15 +255,15 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
    * <p>If incoming money is received by the plugin, but no handler is registered, the plugin SHOULD return an error
    * (and MAY return the money.)</p>
    *
-   * @param ilpMoneyHandler An instance of {@link IlpMoneyHandler}.
+   * @param moneyHandler An instance of {@link BilateralMoneyHandler}.
    */
   @Override
-  public void registerMoneyHandler(final IlpMoneyHandler ilpMoneyHandler)
+  public void registerMoneyHandler(final BilateralMoneyHandler moneyHandler)
       throws MoneyHandlerAlreadyRegisteredException {
-    Objects.requireNonNull(ilpMoneyHandler, "ilpMoneyHandler must not be null!");
-    if (!this.moneyHandlerAtomicReference.compareAndSet(null, ilpMoneyHandler)) {
+    Objects.requireNonNull(moneyHandler, "moneyHandler must not be null!");
+    if (!this.moneyHandlerAtomicReference.compareAndSet(null, moneyHandler)) {
       throw new MoneyHandlerAlreadyRegisteredException(
-          "IlpMoneyHandler may not be registered twice. Call unregisterMoneyHandler first!",
+          "BilateralMoneyHandler may not be registered twice. Call unregisterMoneyHandler first!",
           this.getPluginSettings().getLocalNodeAddress()
       );
     }
@@ -277,23 +271,51 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
 
   /**
    * Removes the currently used money handler. This has the same effect as if {@link
-   * #registerMoneyHandler(IlpMoneyHandler)} had never been called. If no money handler is currently set, this method
-   * does nothing.
+   * #registerMoneyHandler(BilateralMoneyHandler)} had never been called. If no money handler is currently set, this
+   * method does nothing.
    */
   @Override
   public void unregisterMoneyHandler() {
     this.moneyHandlerAtomicReference.set(null);
   }
 
+//  @Override
+//  public CompletableFuture<Optional<InterledgerResponsePacket>> handleIncomingData(
+//      final InterledgerPreparePacket incomingPreparePacket) {
+//    Objects.requireNonNull(incomingPreparePacket);
+//
+//    return this.getDataHandler()
+//        .map(handler -> handler.handleIncomingData(incomingPreparePacket))
+//        .orElseThrow(() -> new MoneyHandlerAlreadyRegisteredException(
+//            "BilateralMoneyHandler may not be registered twice. Call unregisterMoneyHandler first!",
+//            this.getPluginSettings().getLocalNodeAddress()
+//        ));
+//  }
+
+//  @Override
+//  public CompletableFuture<Void> handleIncomingMoney(BigInteger amount) throws InterledgerProtocolException {
+//    Objects.requireNonNull(amount);
+//
+//    return this.getMoneyHandler()
+//        .map(handler -> handler.handleIncomingMoney(amount))
+//        .orElseThrow(() -> new MoneyHandlerAlreadyRegisteredException(
+//            "BilateralMoneyHandler may not be registered twice. Call unregisterMoneyHandler first!",
+//            this.getPluginSettings().getLocalNodeAddress()
+//        ));
+//  }
+
   /**
    * An example {@link PluginEventEmitter} that allows events to be synchronously emitted into a {@link Plugin}.
+   *
+   * @deprecated Transition this to EventBus.
    */
+  @Deprecated
   public static class SyncPluginEventEmitter implements PluginEventEmitter {
 
-    private final Map<UUID, PluginEventHandler> ledgerEventHandlers;
+    private final Map<UUID, PluginEventListener> pluginEventListeners;
 
-    public SyncPluginEventEmitter(final Map<UUID, PluginEventHandler> ledgerEventHandlers) {
-      this.ledgerEventHandlers = Objects.requireNonNull(ledgerEventHandlers);
+    public SyncPluginEventEmitter() {
+      this.pluginEventListeners = Maps.newConcurrentMap();
     }
 
     /////////////////
@@ -302,17 +324,30 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
 
     @Override
     public void emitEvent(final PluginConnectedEvent event) {
-      this.ledgerEventHandlers.values().stream().forEach(handler -> handler.onConnect(event));
+      this.pluginEventListeners.values().stream().forEach(handler -> handler.onConnect(event));
     }
 
     @Override
     public void emitEvent(final PluginDisconnectedEvent event) {
-      this.ledgerEventHandlers.values().stream().forEach(handler -> handler.onDisconnect(event));
+      this.pluginEventListeners.values().stream().forEach(handler -> handler.onDisconnect(event));
     }
 
     @Override
     public void emitEvent(final PluginErrorEvent event) {
-      this.ledgerEventHandlers.values().stream().forEach(handler -> handler.onError(event));
+      this.pluginEventListeners.values().stream().forEach(handler -> handler.onError(event));
+    }
+
+
+    @Override
+    public void addPluginEventListener(final UUID listenerId, final PluginEventListener pluginEventListener) {
+      Objects.requireNonNull(pluginEventListener);
+      this.pluginEventListeners.put(listenerId, pluginEventListener);
+    }
+
+    @Override
+    public void removePluginEventListener(final UUID pluginEventHandler) {
+      Objects.requireNonNull(pluginEventHandler);
+      this.pluginEventListeners.remove(pluginEventHandler);
     }
   }
 }
