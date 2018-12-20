@@ -6,7 +6,6 @@ import static org.interledger.plugin.lpiv2.btp2.subprotocols.BtpSubProtocolHandl
 import static org.interledger.plugin.lpiv2.btp2.subprotocols.BtpSubProtocolHandlerRegistry.BTP_SUB_PROTOCOL_AUTH_USERNAME;
 import static org.interledger.plugin.lpiv2.btp2.subprotocols.BtpSubProtocolHandlerRegistry.BTP_SUB_PROTOCOL_ILP;
 
-import org.interledger.btp.BtpError;
 import org.interledger.btp.BtpErrorCode;
 import org.interledger.btp.BtpMessage;
 import org.interledger.btp.BtpPacket;
@@ -17,13 +16,11 @@ import org.interledger.btp.BtpSubProtocol;
 import org.interledger.btp.BtpSubProtocols;
 import org.interledger.core.InterledgerErrorCode;
 import org.interledger.core.InterledgerFulfillPacket;
-import org.interledger.core.InterledgerPreparePacket;
+import org.interledger.core.InterledgerPacket;
 import org.interledger.core.InterledgerProtocolException;
 import org.interledger.core.InterledgerRejectPacket;
 import org.interledger.core.InterledgerResponsePacket;
 import org.interledger.encoding.asn.framework.CodecContext;
-import org.interledger.plugin.link.BilateralDataHandler;
-import org.interledger.plugin.link.BilateralMoneyHandler;
 import org.interledger.plugin.lpiv2.AbstractPlugin;
 import org.interledger.plugin.lpiv2.Plugin;
 import org.interledger.plugin.lpiv2.btp2.subprotocols.AbstractBtpSubProtocolHandler;
@@ -31,26 +28,24 @@ import org.interledger.plugin.lpiv2.btp2.subprotocols.BtpSubProtocolHandlerRegis
 import org.interledger.plugin.lpiv2.btp2.subprotocols.ilp.IlpBtpSubprotocolHandler;
 import org.interledger.plugin.lpiv2.exceptions.DataHandlerAlreadyRegisteredException;
 
-import java.math.BigInteger;
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
-import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * <p>An extension of {@link Plugin} that is capable of representing a data channel with no money involved. This class
- * takes care of most of the work translating between BTP and the ledger plugin interface (LPI), and will send BTP
- * messages with no knowledge of the data within, so it can be used for ILP packets. The {@link #sendMoney(BigInteger)}
- * function is a no-op because, by default, there is no system involved in handling money with BTP.</p>
+ * <p>An extension of {@link AbstractPlugin} that is capable of representing a data channel with no money involved.
+ * This class takes care of most of the work translating between BTP and the ledger plugin interface (LPI), and will
+ * send BTP messages with no knowledge of the data within, so it can be used for ILP packets. The implementation
+ * returned by {@link #getMoneySender()} is a no-op because, by default, there is no system involved in handling money
+ * with BTP.</p>
  *
  * <p>Two features must be defined in order for this Plugin to handle money. The first is
- * {@link #sendMoney(BigInteger)}, which sends an amount of units to the peer for this Plugin. This should be done via a
- * BTP <tt>TRANSFER</tt> call. The second method is {@link BilateralMoneyHandler##handleIncomingMoney(BigInteger)},
- * which is called on an incoming BTP <tt>TRANSFER</tt> message.</p>
+ * {@link #getMoneySender()}, which sends an amount of units to the peer for this Plugin. This should be done via a BTP
+ * <tt>TRANSFER</tt> call. The second method is {@link #getMoneyHandler()}, which is called
+ * on an incoming BTP <tt>TRANSFER</tt> message.</p>
  *
  * <p>
  * BtpSubProtocol
@@ -64,16 +59,6 @@ public abstract class AbstractBtpPlugin<T extends BtpPluginSettings> extends Abs
   private final CodecContext btpCodecContext;
   private final Random random;
   private final BtpSubProtocolHandlerRegistry btpSubProtocolHandlerRegistry;
-
-  // Because it would be too slow to atomically save all requestIds that are processed, they are not idempotent. It is
-  // the responsibility of the requestor to make sure they don't duplicate requestIds. The implementation should ensure
-  // that no two in-flight requests are sent out with the same requestId. The responder should always send back a
-  // response to a request with the same requestId.
-  // If a request is found in the Map, it is at lease pending. If it has a value of <tt>true</tt> then the request
-  // has been acknowledged already.
-
-  // See Javadoc for #registerPendingResponse for more details.
-  //private final Map<Long, CompletableFuture<BtpResponse>> pendingResponses;
 
   /**
    * Required-args Constructor.
@@ -89,7 +74,14 @@ public abstract class AbstractBtpPlugin<T extends BtpPluginSettings> extends Abs
     this.btpCodecContext = Objects.requireNonNull(btpCodecContext);
     this.btpSubProtocolHandlerRegistry = btpSubProtocolHandlerRegistry;
     this.random = new SecureRandom();
-    //this.pendingResponses = Maps.newConcurrentMap();
+
+    // No need to do anything with the data-handler becuase it's overridden below.
+    // Peg the dataSender to this class's implementation so that it always translates to BTP in order to send.
+    super.registerDataSender(this::sendData);
+
+    // No-op because there is no money-handling in default BTP.
+    super.registerMoneyHandler((amount) -> CompletableFuture.completedFuture(null));
+    super.registerMoneySender((amount) -> CompletableFuture.completedFuture(null));
   }
 
   /**
@@ -154,15 +146,159 @@ public abstract class AbstractBtpPlugin<T extends BtpPluginSettings> extends Abs
   }
 
   /**
-   * Perform the logic of sending an ILP prepare-packet to a remote peer using BTP. This method is mux-agnostic, so
-   * implementations must define an implementation of the actual mux, such as Websocket or Http/2.
+   * Allows a sub-class to implement the actual logic of sending a {@link BtpPacket} over the appropriate mux, such we
+   * Websockets.
+   *
+   * @param btpMessage A {@link BtpMessage}.
+   *
+   * @return A {@link CompletableFuture} that yields a {@link BtpResponse}.
+   */
+  protected abstract CompletableFuture<Optional<BtpResponse>> doSendDataOverBtp(final BtpPacket btpMessage)
+      throws BtpRuntimeException;
+
+  protected CodecContext getIlpCodecContext() {
+    return ilpCodecContext;
+  }
+
+  protected CodecContext getBtpCodecContext() {
+    return btpCodecContext;
+  }
+
+  /**
+   * Returns the next random request id using a PRNG.
+   */
+  protected long nextRequestId() {
+    return Math.abs(random.nextInt());
+  }
+
+  /**
+   * An authentication message must have as its primary <tt>protocolData</tt> entry must have the name of 'auth',
+   * content type <tt>MIME_APPLICATION_OCTET_STREAM</tt>, and empty data, and among the secondary entries, there MUST be
+   * a UTF-8 'auth_token' entry.
+   *
+   * @return
+   */
+  public BtpMessage constructAuthMessage(
+      final long requestId, final String authToken, final Optional<String> authUserName
+  ) {
+    Objects.requireNonNull(authToken);
+    Objects.requireNonNull(authUserName);
+
+    final BtpSubProtocol authSubProtocol = BtpSubProtocol.builder()
+        .protocolName(BTP_SUB_PROTOCOL_AUTH)
+        .contentType(BtpSubProtocol.ContentType.MIME_APPLICATION_OCTET_STREAM)
+        .build();
+    final BtpSubProtocols btpSubProtocols = BtpSubProtocols.fromPrimarySubProtocol(authSubProtocol);
+
+    // In situations where no authentication is needed, the 'auth_token' data can be set to the empty string,
+    // but it cannot be omitted.
+    final BtpSubProtocol authTokenSubprotocol = BtpSubProtocol.builder()
+        .protocolName(BTP_SUB_PROTOCOL_AUTH_TOKEN)
+        .contentType(BtpSubProtocol.ContentType.MIME_APPLICATION_OCTET_STREAM)
+        .data(authToken.getBytes(StandardCharsets.UTF_8))
+        .build();
+    btpSubProtocols.add(authTokenSubprotocol);
+
+    authUserName.ifPresent($ -> {
+      final BtpSubProtocol authUsernameSubprotocol = BtpSubProtocol.builder()
+          .protocolName(BTP_SUB_PROTOCOL_AUTH_USERNAME)
+          .contentType(BtpSubProtocol.ContentType.MIME_APPLICATION_OCTET_STREAM)
+          .data($.getBytes(StandardCharsets.UTF_8))
+          .build();
+      btpSubProtocols.add(authUsernameSubprotocol);
+    });
+
+    return BtpMessage.builder()
+        .requestId(requestId)
+        .subProtocols(btpSubProtocols)
+        .build();
+  }
+
+//  private BtpError constructBtpError(final long requestId, final BtpRuntimeException btpRuntimeException) {
+//    Objects.requireNonNull(btpRuntimeException);
+//    return BtpError.builder()
+//        .requestId(requestId)
+//        .errorCode(btpRuntimeException.getCode())
+//        .triggeredAt(btpRuntimeException.getTriggeredAt())
+//        .errorData(btpRuntimeException.getMessage().getBytes(Charset.forName("UTF-8")))
+//        .build();
+//  }
+
+  //////////////////////
+  // Helper Methods
+  //////////////////////
+
+//  protected final BtpError constructBtpError(final long requestId, final String errorData) {
+//    Objects.requireNonNull(errorData);
+//
+//    // Respond with a BTP Error on the websocket session.
+//    return this.constructBtpError(requestId, errorData, Instant.now(), BtpErrorCode.F00_NotAcceptedError);
+//  }
+
+//  protected final BtpError constructBtpError(final long requestId, final String errorData,
+//      final Instant triggeredAt, final BtpErrorCode btpErrorCode) {
+//    Objects.requireNonNull(errorData);
+//
+//    // Respond with a BTP Error on the websocket session.
+//    return BtpError.builder()
+//        .requestId(requestId)
+//        .triggeredAt(triggeredAt)
+//        .errorCode(btpErrorCode)
+//        .errorData(errorData.getBytes(Charset.forName("UTF-8")))
+//        .build();
+//  }
+
+  public BtpSubProtocolHandlerRegistry getBtpSubProtocolHandlerRegistry() {
+    return btpSubProtocolHandlerRegistry;
+  }
+
+  // All BTP Plugins forward to the BtpSubprotocol registry to handle data.
+  @Override
+  public Optional<DataHandler> getDataHandler() {
+    // When this plugin receives a new DataHandler, it must be connected to the BtpSubProtocol registered in the registry,
+    // so we always just return that handler, if present.
+    return this.getBtpSubProtocolHandlerRegistry()
+        .getHandler(BTP_SUB_PROTOCOL_ILP, MIME_APPLICATION_OCTET_STREAM)
+        .map(ilpHandler -> (IlpBtpSubprotocolHandler) ilpHandler)
+        .map(IlpBtpSubprotocolHandler::getDataHandler);
+  }
+
+  // All BTP Plugins forward to the BtpSubprotocol registry to handle data.
+  @Override
+  public void unregisterDataHandler() {
+    final IlpBtpSubprotocolHandler handler = this.getBtpSubProtocolHandlerRegistry()
+        .getHandler(BTP_SUB_PROTOCOL_ILP, MIME_APPLICATION_OCTET_STREAM)
+        .map(abstractHandler -> (IlpBtpSubprotocolHandler) abstractHandler)
+        .orElseThrow(() -> new RuntimeException(
+            String.format("BTP subprotocol handler with name `%s` MUST be registered!", BTP_SUB_PROTOCOL_ILP)));
+
+    handler.unregisterDataHandler();
+  }
+
+  // All BTP Plugins forward to the BtpSubprotocol registry to handle data.
+  @Override
+  public void registerDataHandler(final DataHandler ilpDataHandler) throws DataHandlerAlreadyRegisteredException {
+    // The BilateralDataHandler for Btp Plugins is always the ILP handler registered with the BtpProtocolRegistry, so setting
+    // a handler here should overwrite the handler there.
+
+    final IlpBtpSubprotocolHandler handler = this.getBtpSubProtocolHandlerRegistry()
+        .getHandler(BTP_SUB_PROTOCOL_ILP, MIME_APPLICATION_OCTET_STREAM)
+        .map(abstractHandler -> (IlpBtpSubprotocolHandler) abstractHandler)
+        .orElseThrow(() -> new RuntimeException(
+            String.format("BTP subprotocol handler with name `%s` MUST be registered!", BTP_SUB_PROTOCOL_ILP)));
+
+    handler.registerDataHandler(getPluginSettings().getLocalNodeAddress(), ilpDataHandler);
+  }
+
+  /**
+   * Translates an ILP Prepare Packet into BTP for further processing.
    *
    * @param preparePacket
+   *
+   * @return
    */
-  @Override
-  public CompletableFuture<Optional<InterledgerResponsePacket>> doSendData(
-      final InterledgerPreparePacket preparePacket
-  ) {
+  private final CompletableFuture<Optional<InterledgerResponsePacket>> sendData(final InterledgerPacket preparePacket) {
+
     Objects.requireNonNull(preparePacket);
 
     // TODO: Implement re-connection logic, but only if this is a BTP Client. Servers simply have to wait to be
@@ -231,186 +367,11 @@ public abstract class AbstractBtpPlugin<T extends BtpPluginSettings> extends Abs
     return response;
   }
 
-  /**
-   * Allows a sub-class to implement the actual logic of sending a {@link BtpPacket} over the appropriate mux, such we
-   * Websockets.
-   *
-   * @param btpMessage A {@link BtpMessage}.
-   *
-   * @return A {@link CompletableFuture} that yields a {@link BtpResponse}.
-   */
-  protected abstract CompletableFuture<Optional<BtpResponse>> doSendDataOverBtp(final BtpPacket btpMessage)
-      throws BtpRuntimeException;
-
-  protected CodecContext getIlpCodecContext() {
-    return ilpCodecContext;
-  }
-
-  protected CodecContext getBtpCodecContext() {
-    return btpCodecContext;
-  }
-
-  /**
-   * Perform the logic of settling with a remote peer.
-   *
-   * @param amount
-   */
   @Override
-  protected CompletableFuture<Void> doSendMoney(BigInteger amount) {
-    // No-op in vanilla BTP. Can be extended by an ILP Plugin.
-    return CompletableFuture.completedFuture(null);
+  public final void registerDataSender(final DataSender dataSender) throws DataHandlerAlreadyRegisteredException {
+    throw new RuntimeException(
+        "BTP Plugins may not register a customer DataSender because all send operations flow over BTP!");
   }
 
-  //  /**
-  //   * Store the username and token into this Websocket session.
-  //   *
-  //   * @param username The username of the signed-in account.
-  //   * @param token    An authorization token used to authenticate the indicated user.
-  //   */
-  //  private void storeAuthInWebSocketSession(
-  //    final WebSocketSession webSocketSession, final String username, final String token
-  //  ) {
-  //    Objects.requireNonNull(username);
-  //    Objects.requireNonNull(token);
-  //
-  //    Objects.requireNonNull(webSocketSession).getAttributes().putEntry(BtpSession.CREDENTIALS_KEY, username + ":" + token);
-  //  }
-  //
-  //  private boolean isAuthenticated(final WebSocketSession webSocketSession) {
-  //    return Objects.requireNonNull(webSocketSession).getAttributes().containsKey(BtpSession.CREDENTIALS_KEY);
-  //  }
 
-  /**
-   * Returns the next random request id using a PRNG.
-   */
-  protected long nextRequestId() {
-    return Math.abs(random.nextInt());
-  }
-
-  /**
-   * Accessor the the BTP Plugin type of this BTP Plugin.
-   */
-  //public abstract BtpPluginType getBtpPluginType();
-
-  /**
-   * An authentication message must have as its primary <tt>protocolData</tt> entry must have the name of 'auth',
-   * content type <tt>MIME_APPLICATION_OCTET_STREAM</tt>, and empty data, and among the secondary entries, there MUST be
-   * a UTF-8 'auth_token' entry.
-   *
-   * @return
-   */
-  public BtpMessage constructAuthMessage(
-      final long requestId, final String authToken, final Optional<String> authUserName
-  ) {
-    Objects.requireNonNull(authToken);
-    Objects.requireNonNull(authUserName);
-
-    final BtpSubProtocol authSubProtocol = BtpSubProtocol.builder()
-        .protocolName(BTP_SUB_PROTOCOL_AUTH)
-        .contentType(BtpSubProtocol.ContentType.MIME_APPLICATION_OCTET_STREAM)
-        .build();
-    final BtpSubProtocols btpSubProtocols = BtpSubProtocols.fromPrimarySubProtocol(authSubProtocol);
-
-    // In situations where no authentication is needed, the 'auth_token' data can be set to the empty string,
-    // but it cannot be omitted.
-    final BtpSubProtocol authTokenSubprotocol = BtpSubProtocol.builder()
-        .protocolName(BTP_SUB_PROTOCOL_AUTH_TOKEN)
-        .contentType(BtpSubProtocol.ContentType.MIME_APPLICATION_OCTET_STREAM)
-        .data(authToken.getBytes(StandardCharsets.UTF_8))
-        .build();
-    btpSubProtocols.add(authTokenSubprotocol);
-
-    authUserName.ifPresent($ -> {
-      final BtpSubProtocol authUsernameSubprotocol = BtpSubProtocol.builder()
-          .protocolName(BTP_SUB_PROTOCOL_AUTH_USERNAME)
-          .contentType(BtpSubProtocol.ContentType.MIME_APPLICATION_OCTET_STREAM)
-          .data($.getBytes(StandardCharsets.UTF_8))
-          .build();
-      btpSubProtocols.add(authUsernameSubprotocol);
-    });
-
-    return BtpMessage.builder()
-        .requestId(requestId)
-        .subProtocols(btpSubProtocols)
-        .build();
-  }
-
-  private BtpError constructBtpError(final long requestId, final BtpRuntimeException btpRuntimeException) {
-    Objects.requireNonNull(btpRuntimeException);
-    return BtpError.builder()
-        .requestId(requestId)
-        .errorCode(btpRuntimeException.getCode())
-        .triggeredAt(btpRuntimeException.getTriggeredAt())
-        .errorData(btpRuntimeException.getMessage().getBytes(Charset.forName("UTF-8")))
-        .build();
-  }
-
-  //////////////////////
-  // Helper Methods
-  //////////////////////
-
-  protected final BtpError constructBtpError(final long requestId, final String errorData) {
-    Objects.requireNonNull(errorData);
-
-    // Respond with a BTP Error on the websocket session.
-    return this.constructBtpError(requestId, errorData, Instant.now(), BtpErrorCode.F00_NotAcceptedError);
-  }
-
-  protected final BtpError constructBtpError(final long requestId, final String errorData,
-      final Instant triggeredAt, final BtpErrorCode btpErrorCode) {
-    Objects.requireNonNull(errorData);
-
-    // Respond with a BTP Error on the websocket session.
-    return BtpError.builder()
-        .requestId(requestId)
-        .triggeredAt(triggeredAt)
-        .errorCode(btpErrorCode)
-        .errorData(errorData.getBytes(Charset.forName("UTF-8")))
-        .build();
-  }
-
-  public BtpSubProtocolHandlerRegistry getBtpSubProtocolHandlerRegistry() {
-    return btpSubProtocolHandlerRegistry;
-  }
-
-  @Override
-  public Optional<BilateralDataHandler> getDataHandler() {
-    // When this plugin receives a new DataHandler, it must be connected to teh BtpSubProtocol registered in the registry,
-    // so we always just return that handler, if present.
-    return this.getBtpSubProtocolHandlerRegistry()
-        .getHandler(BTP_SUB_PROTOCOL_ILP, MIME_APPLICATION_OCTET_STREAM)
-        .map(ilpHandler -> (IlpBtpSubprotocolHandler) ilpHandler)
-        .map(IlpBtpSubprotocolHandler::getDataHandler);
-  }
-
-  /**
-   * Removes the currently used {@link BilateralDataHandler}. This has the same effect as if {@link
-   * #registerDataHandler(BilateralDataHandler)} had never been called. If no data handler is currently set, this method
-   * does nothing.
-   */
-  @Override
-  public void unregisterDataHandler() {
-    final IlpBtpSubprotocolHandler handler =
-        this.getBtpSubProtocolHandlerRegistry()
-            .getHandler(BTP_SUB_PROTOCOL_ILP, MIME_APPLICATION_OCTET_STREAM)
-            .map(abstractHandler -> (IlpBtpSubprotocolHandler) abstractHandler)
-            .orElseThrow(() -> new RuntimeException(
-                String.format("BTP subprotocol handler with name `%s` MUST be registered!", BTP_SUB_PROTOCOL_ILP)));
-    handler.unregisterDataHandler();
-  }
-
-  @Override
-  public void registerDataHandler(final BilateralDataHandler ilpDataHandler)
-      throws DataHandlerAlreadyRegisteredException {
-    // The BilateralDataHandler for Btp Plugins is always the ILP handler registered with the BtpProtocolRegistry, so setting
-    // a handler here should overwrite the handler there.
-
-    final IlpBtpSubprotocolHandler handler =
-        this.getBtpSubProtocolHandlerRegistry()
-            .getHandler(BTP_SUB_PROTOCOL_ILP, MIME_APPLICATION_OCTET_STREAM)
-            .map(abstractHandler -> (IlpBtpSubprotocolHandler) abstractHandler)
-            .orElseThrow(() -> new RuntimeException(
-                String.format("BTP subprotocol handler with name `%s` MUST be registered!", BTP_SUB_PROTOCOL_ILP)));
-    handler.registerDataHandler(getPluginSettings().getLocalNodeAddress(), ilpDataHandler);
-  }
 }

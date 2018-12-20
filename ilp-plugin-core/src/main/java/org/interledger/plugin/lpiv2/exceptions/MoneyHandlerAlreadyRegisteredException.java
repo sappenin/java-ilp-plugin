@@ -1,11 +1,11 @@
 package org.interledger.plugin.lpiv2.exceptions;
 
 import org.interledger.core.InterledgerAddress;
-import org.interledger.plugin.link.BilateralMoneyHandler;
+import org.interledger.plugin.BilateralReceiver.MoneyHandler;
 import org.interledger.plugin.lpiv2.Plugin;
 
 /**
- * Thrown if a caller attempts to register a {@link BilateralMoneyHandler } in a {@link Plugin} where one is already
+ * Thrown if a caller attempts to register a {@link MoneyHandler } in a {@link Plugin} where one is already
  * registered.
  */
 public class MoneyHandlerAlreadyRegisteredException extends PluginException {

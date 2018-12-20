@@ -1,11 +1,10 @@
 package org.interledger.plugin.lpiv2;
 
+
 import org.interledger.core.InterledgerAddress;
 import org.interledger.core.InterledgerErrorCode;
 import org.interledger.core.InterledgerFulfillPacket;
-import org.interledger.core.InterledgerFulfillment;
 import org.interledger.core.InterledgerRejectPacket;
-import org.interledger.plugin.lpiv2.settings.PluginSettings;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
@@ -18,10 +17,10 @@ import java.util.Map;
  */
 public class TestHelpers {
 
-  public static final byte[] PREIMAGE = "Roads? Where we're going we dont".getBytes();
-  public static final InterledgerFulfillment FULFILLMENT = InterledgerFulfillment.of(PREIMAGE);
-  public static final byte[] ALTERNATE_PREIMAGE = "11inquagintaquadringentilliard11".getBytes();
-  public static final InterledgerFulfillment ALTERNATE_FULFILLMENT = InterledgerFulfillment.of(ALTERNATE_PREIMAGE);
+  //public static final byte[] PREIMAGE = "Roads? Where we're going we dont".getBytes();
+  //public static final InterledgerFulfillment FULFILLMENT = InterledgerFulfillment.of(PREIMAGE);
+  //public static final byte[] ALTERNATE_PREIMAGE = "11inquagintaquadringentilliard11".getBytes();
+  //public static final InterledgerFulfillment ALTERNATE_FULFILLMENT = InterledgerFulfillment.of(ALTERNATE_PREIMAGE);
 
   protected static final InterledgerAddress LOCAL_NODE_ADDRESS = InterledgerAddress.of("test1.foo");
   protected static final InterledgerAddress PEER_ACCOUNT = InterledgerAddress.of("test1.b");
@@ -72,10 +71,11 @@ public class TestHelpers {
    */
   @VisibleForTesting
   public static final InterledgerFulfillPacket getSendDataFulfillPacket() {
-    return InterledgerFulfillPacket.builder()
-        .fulfillment(FULFILLMENT)
-        .data(new byte[32])
-        .build();
+return null;
+    //    return InterledgerFulfillPacket.builder()
+//        .fulfillment(FULFILLMENT)
+//        .data(new byte[32])
+//        .build();
   }
 
   /**

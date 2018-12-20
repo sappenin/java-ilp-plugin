@@ -16,22 +16,27 @@ public class BtpSessionUtils {
    *
    * @return
    */
-  public static BtpSession getBtpSessionFromWebSocketSession(final WebSocketSession webSocketSession) {
+  public static Optional<BtpSession> getBtpSessionFromWebSocketSession(final WebSocketSession webSocketSession) {
     Objects.requireNonNull(webSocketSession);
 
     // It is an error if no BtpSession exists in a WebSocketSession!
-    return (BtpSession) webSocketSession.getAttributes().get(BTP_SESSION);
+    return Optional.ofNullable(webSocketSession.getAttributes().get(BTP_SESSION))
+        .map($ -> (BtpSession) $);
   }
 
   /**
    * Associate a {@link BtpSession} with the supplied {@link WebSocketSession}.
    *
    * @return the previous value associated with <tt>webSocketSession</tt>, or {@link Optional#empty()} if there was no
-   * mapping for <tt>webSocketSession</tt>.
+   *     mapping for <tt>webSocketSession</tt>.
    */
   public static Optional<BtpSession> setBtpSessionIntoWebsocketSession(
-    final WebSocketSession webSocketSession, final BtpSession btpSession
+      final WebSocketSession webSocketSession, final BtpSession btpSession
   ) {
     return Optional.ofNullable((BtpSession) webSocketSession.getAttributes().put(BTP_SESSION, btpSession));
+  }
+
+  public static boolean isPresent(final WebSocketSession webSocketSession) {
+    return getBtpSessionFromWebSocketSession(webSocketSession).isPresent();
   }
 }

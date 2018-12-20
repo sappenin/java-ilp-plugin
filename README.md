@@ -9,7 +9,7 @@
 
 Java implementation of the [Plugin Interface 2](https://github.com/interledger/rfcs/blob/master/0024-ledger-plugin-interface-2/0024-ledger-plugin-interface-2.md), typically used by ILPv4 Connectors.
 
-* v2.0.0-SNAPSHOT Initial commit of interfaces and abstract classes for ILPv4 Plugins.
+* lpiv2.0.0-SNAPSHOT Initial commit of interfaces and abstract classes for ILPv4 Plugins.
  
 ## Usage
 

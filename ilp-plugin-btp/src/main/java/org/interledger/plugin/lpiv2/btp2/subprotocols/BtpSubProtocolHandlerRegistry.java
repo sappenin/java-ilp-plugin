@@ -26,20 +26,25 @@ public class BtpSubProtocolHandlerRegistry {
   private Map<String, AbstractBtpSubProtocolHandler> textHandlers = new HashMap<>();
   private Map<String, AbstractBtpSubProtocolHandler> octetStreamHandlers = new HashMap<>();
 
-  public BtpSubProtocolHandlerRegistry(final BtpAuthenticationService btpAuthenticationService) {
-    this(InterledgerCodecContextFactory.oer(), btpAuthenticationService);
+  /**
+   * Required-args Constructor.
+   */
+  public BtpSubProtocolHandlerRegistry(final AuthBtpSubprotocolHandler authBtpSubprotocolHandler) {
+    this(authBtpSubprotocolHandler, InterledgerCodecContextFactory.oer());
   }
 
+  /**
+   * Required-args Constructor.
+   */
   public BtpSubProtocolHandlerRegistry(
-      final CodecContext ilpCodecContext, final BtpAuthenticationService btpAuthenticationService
+      final AuthBtpSubprotocolHandler authBtpSubprotocolHandler, final CodecContext ilpCodecContext
   ) {
+    Objects.requireNonNull(authBtpSubprotocolHandler);
     Objects.requireNonNull(ilpCodecContext);
-    Objects.requireNonNull(btpAuthenticationService);
 
     // Register the Auth BTP sub-protocol handler.
     this.putHandler(
-        BTP_SUB_PROTOCOL_AUTH, ContentType.MIME_APPLICATION_OCTET_STREAM,
-        new AuthBtpSubprotocolHandler(btpAuthenticationService)
+        BTP_SUB_PROTOCOL_AUTH, ContentType.MIME_APPLICATION_OCTET_STREAM, authBtpSubprotocolHandler
     );
 
     // Register the ILP BTP sub-protocol handler.
@@ -114,4 +119,12 @@ public class BtpSubProtocolHandlerRegistry {
       }
     }
   }
+
+//  /**
+//   * Determines the type of BTP Auth subprotocol handler to utilze when creating the registry.
+//   */
+//  public enum RegistryProfile {
+//    CLIENT, // BTP is being performed by a BTP client, so utilize that subprotocol handler.
+//    SERVER // BTP is being performed by a BTP server, so utilize that subprotocol handler.
+//  }
 }

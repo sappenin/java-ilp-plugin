@@ -1,6 +1,7 @@
 package org.interledger.plugin.lpiv2.btp2.subprotocols.ilp;
 
 import org.interledger.btp.BtpError;
+import org.interledger.btp.BtpErrorCode;
 import org.interledger.btp.BtpMessage;
 import org.interledger.btp.BtpResponse;
 import org.interledger.btp.BtpRuntimeException;
@@ -15,7 +16,7 @@ import org.interledger.core.InterledgerPreparePacket;
 import org.interledger.core.InterledgerResponsePacket;
 import org.interledger.core.asn.framework.InterledgerCodecContextFactory;
 import org.interledger.encoding.asn.framework.CodecContext;
-import org.interledger.plugin.link.BilateralDataHandler;
+import org.interledger.plugin.BilateralReceiver.DataHandler;
 import org.interledger.plugin.lpiv2.Plugin;
 import org.interledger.plugin.lpiv2.btp2.subprotocols.AbstractBtpSubProtocolHandler;
 import org.interledger.plugin.lpiv2.exceptions.DataHandlerAlreadyRegisteredException;
@@ -44,7 +45,7 @@ public class IlpBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
   private final CodecContext ilpCodecContext;
 
   // To avoid circular-dependencies, this handler MAY need to be set _after_ the Connector server has started...
-  private final AtomicReference<BilateralDataHandler> dataHandlerAtomicReference;
+  private final AtomicReference<DataHandler> dataHandlerAtomicReference;
 
   /**
    * No-args Constructor.
@@ -67,10 +68,10 @@ public class IlpBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
    *
    * @param ilpCodecContext            A {@link CodecContext} that can handle encoding/decoding of ILP Packets.
    * @param dataHandlerAtomicReference An {@link AtomicReference} containting an optionally-present instance of  {@link
-   *                                   BilateralDataHandler} that actually handles incoming ILP prepare packets.
+   *                                   DataHandler} that actually handles incoming ILP prepare packets.
    */
   public IlpBtpSubprotocolHandler(
-      final CodecContext ilpCodecContext, final AtomicReference<BilateralDataHandler> dataHandlerAtomicReference
+      final CodecContext ilpCodecContext, final AtomicReference<DataHandler> dataHandlerAtomicReference
   ) {
     this.ilpCodecContext = Objects.requireNonNull(ilpCodecContext);
     this.dataHandlerAtomicReference = Objects.requireNonNull(dataHandlerAtomicReference);
@@ -222,7 +223,7 @@ public class IlpBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
    * <p>Set the callback which is used to handle incoming prepared data packets. The handler should expect one
    * parameter (an ILP Prepare Packet) and return a CompletableFuture for the resulting response. If an error occurs,
    * the callback MAY throw an exception. In general, the callback should behave as {@link
-   * Plugin#sendData(InterledgerPreparePacket)} does.</p>
+   * Plugin#getDataSender#sendData(InterledgerPreparePacket)} does.</p>
    *
    * <p>If a data handler is already set, this method throws a {@link DataHandlerAlreadyRegisteredException}. In order
    * to change the data handler, the old handler must first be removed via {@link #unregisterDataHandler()}. This is to
@@ -231,41 +232,41 @@ public class IlpBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
    * <p>If an incoming packet is received by the plugin, but no handler is registered, the plugin SHOULD respond with
    * an error.</p>
    *
-   * @param dataHandler An instance of {@link BilateralDataHandler}.
+   * @param dataHandler An instance of {@link DataHandler}.
    */
-  public void registerDataHandler(final InterledgerAddress localNodeAddress, final BilateralDataHandler dataHandler)
+  public void registerDataHandler(final InterledgerAddress localNodeAddress, final DataHandler dataHandler)
       throws DataHandlerAlreadyRegisteredException {
 
     Objects.requireNonNull(dataHandler, "dataHandler must not be null!");
     if (!this.dataHandlerAtomicReference.compareAndSet(null, dataHandler)) {
       throw new DataHandlerAlreadyRegisteredException(
-          "BilateralDataHandler may not be registered twice. Call unregisterDataHandler first!", localNodeAddress
+          "DataHandler may not be registered twice. Call unregisterDataHandler first!", localNodeAddress
       );
     }
   }
 
   /**
-   * Accessor for the currently registered {@link BilateralDataHandler}. Throws a {@link RuntimeException} if no handler
-   * is registered, because callers should not be trying to access the handler if none is registered (in other words, a
+   * Accessor for the currently registered {@link DataHandler}. Throws a {@link RuntimeException} if no handler is
+   * registered, because callers should not be trying to access the handler if none is registered (in other words, a
    * Plugin is not in a valid state until it has handlers registered).
    *
-   * @return The currently registered {@link BilateralDataHandler}.
+   * @return The currently registered {@link DataHandler}.
    *
    * @throws {@link RuntimeException} if no handler is registered.
    */
-  public BilateralDataHandler getDataHandler() {
-    final BilateralDataHandler handler = this.dataHandlerAtomicReference.get();
+  public DataHandler getDataHandler() {
+    final DataHandler handler = this.dataHandlerAtomicReference.get();
     if (handler == null) {
-      throw new RuntimeException("BilateralDataHandler MUST be registered before being accessed!");
+      throw new RuntimeException("DataHandler MUST be registered before being accessed!");
     } else {
       return handler;
     }
   }
 
   /**
-   * Removes the currently used {@link BilateralDataHandler}. This has the same effect as if {@link
-   * #registerDataHandler(InterledgerAddress, BilateralDataHandler)} had never been called. If no data handler is
-   * currently set, this method does nothing.
+   * Removes the currently used {@link DataHandler}. This has the same effect as if {@link
+   * #registerDataHandler(InterledgerAddress, DataHandler)} had never been called. If no data handler is currently set,
+   * this method does nothing.
    */
   public void unregisterDataHandler() {
     this.dataHandlerAtomicReference.set(null);
@@ -274,11 +275,10 @@ public class IlpBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
   protected InterledgerAddress getSourceAccountFromSession(final BtpSession btpSession) {
     Objects.requireNonNull(btpSession);
 
-    // TODO: Improve these exceptions depending on what BTP specifies - should this reject, or just swallow?
     if (!btpSession.isAuthenticated()) {
-      throw new RuntimeException("BtpSession not authenticated!");
+      throw new BtpRuntimeException(BtpErrorCode.F00_NotAcceptedError, "BtpSession not authenticated!");
     } else {
-      return btpSession.getBtpSessionCredentials().get()
+      return btpSession.getBtpSessionCredentials()
           .map(BtpSessionCredentials::getAuthUsername)
           .filter(Optional::isPresent)
           .map(Optional::get)

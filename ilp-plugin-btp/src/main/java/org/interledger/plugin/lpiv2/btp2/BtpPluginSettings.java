@@ -1,6 +1,6 @@
 package org.interledger.plugin.lpiv2.btp2;
 
-import org.interledger.plugin.lpiv2.settings.PluginSettings;
+import org.interledger.plugin.lpiv2.PluginSettings;
 
 import org.immutables.value.Value;
 

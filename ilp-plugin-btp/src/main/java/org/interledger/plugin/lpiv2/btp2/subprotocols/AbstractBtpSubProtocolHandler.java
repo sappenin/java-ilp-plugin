@@ -9,7 +9,6 @@ import org.interledger.btp.BtpRuntimeException;
 import org.interledger.btp.BtpSession;
 import org.interledger.btp.BtpSubProtocol;
 import org.interledger.btp.BtpTransfer;
-import org.interledger.core.InterledgerAddress;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -20,21 +19,6 @@ import java.util.concurrent.CompletableFuture;
  * particular {@link BtpSubProtocol}, as found in {@link BtpMessage#getSubProtocols()}.
  */
 public abstract class AbstractBtpSubProtocolHandler {
-
-//  private final ThreadLocal<InterledgerAddress> localNodeAddressThreadLocal;
-//
-//  protected AbstractBtpSubProtocolHandler() {
-//    this.localNodeAddressThreadLocal = new ThreadLocal<>();
-//  }
-//
-//  public InterledgerAddress getLocalNodeAddressThreadLocal() {
-//    return this.localNodeAddressThreadLocal.get();
-//  }
-//
-//  public void setLocalNodeAddressThreadLocal(final InterledgerAddress interledgerAddress) {
-//    Objects.requireNonNull(interledgerAddress);
-//    localNodeAddressThreadLocal.set(interledgerAddress);
-//  }
 
   /**
    * <p>Handle a primary {@link BtpSubProtocol} whose data payload should be treated as binary data.</p>

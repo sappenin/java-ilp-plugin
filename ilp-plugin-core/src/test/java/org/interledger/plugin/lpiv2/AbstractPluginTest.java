@@ -57,26 +57,16 @@ public class AbstractPluginTest {
       public CompletableFuture<Void> doDisconnect() {
         return CompletableFuture.completedFuture(null);
       }
-
-      @Override
-      protected CompletableFuture<Void> doSendMoney(BigInteger amount) {
-        return CompletableFuture.completedFuture(null);
-      }
-
-      @Override
-      public CompletableFuture<Optional<InterledgerResponsePacket>> doSendData(InterledgerPreparePacket preparePacket)
-          throws InterledgerProtocolException {
-        return CompletableFuture.completedFuture(Optional.empty());
-      }
     };
-    this.abstractPlugin.addPluginEventListener(UUID.randomUUID(), pluginEventListenerMock);
 
-    this.abstractPlugin.registerDataHandler(((
-        //sourceAccountAddress,
-        sourcePreparePacket) ->
-        CompletableFuture.supplyAsync(() -> Optional.of(TestHelpers.getSendDataFulfillPacket()))
+    abstractPlugin.registerDataSender((preparePacket) -> CompletableFuture.completedFuture(Optional.empty()));
+    abstractPlugin.registerMoneySender((amount) -> CompletableFuture.completedFuture(null));
+    abstractPlugin.registerDataHandler((sourcePreparePacket) ->
+        CompletableFuture.supplyAsync(() -> Optional.of(TestHelpers.getSendDataFulfillPacket())
     ));
-    this.abstractPlugin.registerMoneyHandler((amount -> CompletableFuture.supplyAsync(() -> null)));
+    abstractPlugin.registerMoneyHandler((amount -> CompletableFuture.supplyAsync(() -> null)));
+
+    abstractPlugin.addPluginEventListener(UUID.randomUUID(), pluginEventListenerMock);
   }
 
   @Test

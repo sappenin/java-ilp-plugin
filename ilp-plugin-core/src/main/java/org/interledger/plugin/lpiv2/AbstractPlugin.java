@@ -1,23 +1,19 @@
 package org.interledger.plugin.lpiv2;
 
-import org.interledger.core.InterledgerPreparePacket;
-import org.interledger.core.InterledgerResponsePacket;
-import org.interledger.plugin.link.BilateralDataHandler;
-import org.interledger.plugin.link.BilateralMoneyHandler;
 import org.interledger.plugin.lpiv2.events.PluginConnectedEvent;
 import org.interledger.plugin.lpiv2.events.PluginDisconnectedEvent;
 import org.interledger.plugin.lpiv2.events.PluginErrorEvent;
 import org.interledger.plugin.lpiv2.events.PluginEventEmitter;
 import org.interledger.plugin.lpiv2.events.PluginEventListener;
 import org.interledger.plugin.lpiv2.exceptions.DataHandlerAlreadyRegisteredException;
+import org.interledger.plugin.lpiv2.exceptions.DataSenderAlreadyRegisteredException;
 import org.interledger.plugin.lpiv2.exceptions.MoneyHandlerAlreadyRegisteredException;
-import org.interledger.plugin.lpiv2.settings.PluginSettings;
+import org.interledger.plugin.lpiv2.exceptions.MoneySenderAlreadyRegisteredException;
 
 import com.google.common.collect.Maps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.math.BigInteger;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -27,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * An abstract implementation of a {@link Plugin} that does directly connects emitted ledger events to proper handlers.
+ * An abstract implementation of a {@link Plugin} that provides scaffolding for all plugin implementations.
  */
 public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin<T> {
 
@@ -38,14 +34,20 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
    */
   private final T pluginSettings;
 
+  private final AtomicBoolean connected = new AtomicBoolean(NOT_CONNECTED);
+
   // The emitter used by this plugin.
   private PluginEventEmitter pluginEventEmitter;
 
-  private AtomicBoolean connected = new AtomicBoolean(NOT_CONNECTED);
+  private AtomicReference<DataSender> dataSenderAtomicReference = new AtomicReference<>();
 
-  private AtomicReference<BilateralDataHandler> dataHandlerAtomicReference = new AtomicReference<>();
   // TODO: Use a no-op MoneyHandler by default, and remove checks in connect/disconnect.
-  private AtomicReference<BilateralMoneyHandler> moneyHandlerAtomicReference = new AtomicReference<>();
+  private AtomicReference<MoneySender> moneySenderAtomicReference = new AtomicReference<>();
+
+  private AtomicReference<DataHandler> dataHandlerAtomicReference = new AtomicReference<>();
+
+  // TODO: Use a no-op MoneyHandler by default, and remove checks in connect/disconnect.
+  private AtomicReference<MoneyHandler> moneyHandlerAtomicReference = new AtomicReference<>();
 
   /**
    * Required-args Constructor which utilizes a default {@link PluginEventEmitter} that synchronously connects to any
@@ -54,10 +56,7 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
    * @param pluginSettings A {@link T} that specified ledger plugin options.
    */
   protected AbstractPlugin(final T pluginSettings) {
-    this.pluginSettings = Objects.requireNonNull(pluginSettings);
-
-    // TODO: Use EventBus instead
-    this.pluginEventEmitter = new SyncPluginEventEmitter();
+    this(pluginSettings, new SyncPluginEventEmitter());
   }
 
   /**
@@ -66,42 +65,48 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
    * @param pluginSettings     A {@link T} that specified ledger plugin options.
    * @param pluginEventEmitter A {@link PluginEventEmitter} that is used to emit events from this plugin.
    */
-  protected AbstractPlugin(
-      final T pluginSettings,
-      final PluginEventEmitter pluginEventEmitter
-  ) {
+  protected AbstractPlugin(final T pluginSettings, final PluginEventEmitter pluginEventEmitter) {
     this.pluginSettings = Objects.requireNonNull(pluginSettings);
     this.pluginEventEmitter = Objects.requireNonNull(pluginEventEmitter);
   }
 
   @Override
   public final CompletableFuture<Void> connect() {
-    logger.info("[{}] `{}` connecting to `{}`...", this.pluginSettings.getPluginType(),
-        this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
-
     try {
       if (this.connected.compareAndSet(NOT_CONNECTED, CONNECTED)) {
-        // Can't connect without handlers
-        if (this.getDataHandler().isPresent() == false) {
-          throw new RuntimeException("You MUST register a dataHandler before connecting this plugin!");
-        }
-        if (this.getMoneyHandler().isPresent() == false) {
-          throw new RuntimeException("You MUST register a moneyHandler before connecting this plugin!");
-        }
+        logger.debug("[{}] `{}` connecting to `{}`...", this.pluginSettings.getPluginType(),
+            this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
 
-        return this.doConnect().whenComplete((result, error) -> {
-          this.pluginEventEmitter.emitEvent(PluginConnectedEvent.of(this));
-          logger.info("[{}] `{}` connected to `{}`", this.getPluginSettings().getPluginType(),
-              this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
-        });
+        return this.doConnect()
+            .whenComplete(($, error) -> {
+              if (error == null) {
+                // Emit a connected event...
+                this.pluginEventEmitter.emitEvent(PluginConnectedEvent.of(this));
+
+                logger.debug("[{}] `{}` connected to `{}`", this.getPluginSettings().getPluginType(),
+                    this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
+              } else {
+                final String errorMessage = String.format("[%s] `%s` error while trying to connect to `%s`",
+                    this.pluginSettings.getPluginType(),
+                    this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress()
+                );
+                logger.error(errorMessage, error);
+              }
+            });
       } else {
-        // Nothing todo, we're already connected...
+        logger.debug("[{}] `{}` already connected to `{}`...", this.pluginSettings.getPluginType(),
+            this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
+        // No-op: We're already expectedCurrentState...
         return CompletableFuture.completedFuture(null);
       }
     } catch (RuntimeException e) {
       // If we can't connect, then disconnect this account in order to trigger any listeners.
       this.disconnect().join();
       throw e;
+    } catch (Exception e) {
+      // If we can't connect, then disconnect this account in order to trigger any listeners.
+      this.disconnect().join();
+      throw new RuntimeException(e.getMessage(), e);
     }
   }
 
@@ -117,25 +122,39 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
 
   @Override
   public final CompletableFuture<Void> disconnect() {
-    logger.info("[{}] `{}` disconnecting from `{}`...", this.pluginSettings.getPluginType(),
-        this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
-
     try {
       if (this.connected.compareAndSet(CONNECTED, NOT_CONNECTED)) {
-        return this.doDisconnect().thenAccept(($) -> {
-          // In either case above, emit the disconnect event.
-          this.pluginEventEmitter.emitEvent(PluginDisconnectedEvent.of(this));
+        logger.debug("[{}] `{}` disconnecting from `{}`...", this.pluginSettings.getPluginType(),
+            this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
 
-          logger.info("[{}] `{}` disconnected from `{}`.", this.pluginSettings.getPluginType(),
-              this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
-        });
+        return this.doDisconnect()
+            .whenComplete(($, error) -> {
+              if (error == null) {
+                // emit disconnected event.
+                this.pluginEventEmitter.emitEvent(PluginDisconnectedEvent.of(this));
+
+                logger.debug("[{}] `{}` disconnected from `{}`.", this.pluginSettings.getPluginType(),
+                    this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
+              } else {
+                final String errorMessage = String.format("[%s] `%s` error while trying to disconnect from `%s`",
+                    this.pluginSettings.getPluginType(),
+                    this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress()
+                );
+                logger.error(errorMessage, error);
+              }
+            })
+            .thenAccept(($) -> {
+              logger.debug("[{}] `{}` disconnected from `{}`...", this.pluginSettings.getPluginType(),
+                  this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
+            });
       } else {
+        logger.debug("[{}] `{}` already disconnected from `{}`...", this.pluginSettings.getPluginType(),
+            this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
+        // No-op: We're already expectedCurrentState...
         return CompletableFuture.completedFuture(null);
       }
-    } catch (RuntimeException e) {
-      // Even if an exception is thrown above, be sure to emit the disconnected event.
-      this.pluginEventEmitter.emitEvent(PluginDisconnectedEvent.of(this));
-      throw e;
+    } catch (Exception e) {
+      throw new RuntimeException(e.getMessage(), e);
     }
   }
 
@@ -144,11 +163,6 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
    */
   public abstract CompletableFuture<Void> doDisconnect();
 
-  /**
-   * Query whether the plugin is currently connected.
-   *
-   * @return {@code true} if the plugin is connected, {@code false} otherwise.
-   */
   @Override
   public boolean isConnected() {
     return this.connected.get();
@@ -176,133 +190,92 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
   }
 
   @Override
-  public final CompletableFuture<Optional<InterledgerResponsePacket>> sendData(
-      final InterledgerPreparePacket preparePacket
-  ) {
-    Objects.requireNonNull(preparePacket);
-
-    logger.debug("[{}] sendData: {}", this.pluginSettings.getPluginType(), preparePacket);
-
-    return this.doSendData(preparePacket);
-  }
-
-  /**
-   * Perform the logic of sending a packet to a remote peer.
-   *
-   * @param preparePacket An {@link InterledgerPreparePacket} to send to the remote peer.l
-   */
-  public abstract CompletableFuture<Optional<InterledgerResponsePacket>> doSendData(
-      final InterledgerPreparePacket preparePacket
-  );
-
-  @Override
-  public void registerDataHandler(final BilateralDataHandler ilpDataHandler)
+  public void registerDataSender(final DataSender dataSender)
       throws DataHandlerAlreadyRegisteredException {
-    Objects.requireNonNull(ilpDataHandler, "ilpDataHandler must not be null!");
-    if (!this.dataHandlerAtomicReference.compareAndSet(null, ilpDataHandler)) {
-      throw new DataHandlerAlreadyRegisteredException(
-          "BilateralDataHandler may not be registered twice. Call unregisterDataHandler first!",
+    Objects.requireNonNull(dataSender, "dataSender must not be null!");
+    if (!this.dataSenderAtomicReference.compareAndSet(null, dataSender)) {
+      throw new DataSenderAlreadyRegisteredException(
+          "DataSender may not be registered twice. Call unregisterDataSender first!",
           this.getPluginSettings().getLocalNodeAddress()
       );
     }
   }
 
   @Override
-  public Optional<BilateralDataHandler> getDataHandler() {
-    return Optional.ofNullable(this.dataHandlerAtomicReference.get());
+  public Optional<DataSender> getDataSender() {
+    return Optional.ofNullable(this.dataSenderAtomicReference.get());
   }
 
   @Override
-  public Optional<BilateralMoneyHandler> getMoneyHandler() {
-    return Optional.ofNullable(moneyHandlerAtomicReference.get());
+  public void unregisterDataSender() {
+    this.dataSenderAtomicReference.set(null);
   }
 
-  /**
-   * Removes the currently used {@link BilateralDataHandler}. This has the same effect as if {@link
-   * #registerDataHandler(BilateralDataHandler)} had never been called. If no data handler is currently set, this method
-   * does nothing.
-   */
+  @Override
+  public void registerDataHandler(final DataHandler ilpDataHandler)
+      throws DataHandlerAlreadyRegisteredException {
+    Objects.requireNonNull(ilpDataHandler, "ilpDataHandler must not be null!");
+    if (!this.dataHandlerAtomicReference.compareAndSet(null, ilpDataHandler)) {
+      throw new DataHandlerAlreadyRegisteredException(
+          "DataHandler may not be registered twice. Call unregisterDataHandler first!",
+          this.getPluginSettings().getLocalNodeAddress()
+      );
+    }
+  }
+
+  @Override
+  public Optional<DataHandler> getDataHandler() {
+    return Optional.ofNullable(this.dataHandlerAtomicReference.get());
+  }
+
   @Override
   public void unregisterDataHandler() {
     this.dataHandlerAtomicReference.set(null);
   }
 
   @Override
-  public final CompletableFuture<Void> sendMoney(final BigInteger amount) {
-    Objects.requireNonNull(amount);
-    logger.info("[{}] settling {} units via {}!",
-        this.pluginSettings.getPluginType(), amount, pluginSettings.getPeerAccountAddress()
-    );
-    // Handles checked and unchecked exceptions properly.
-    //return Completions.supplyAsync(() -> this.doSendMoney(amount)).toCompletableFuture();
-    return this.doSendMoney(amount);
+  public Optional<MoneyHandler> getMoneyHandler() {
+    return Optional.ofNullable(moneyHandlerAtomicReference.get());
   }
 
-  /**
-   * Perform the logic of settling with a remote peer.
-   */
-  protected abstract CompletableFuture<Void> doSendMoney(final BigInteger amount);
-
-  /**
-   * <p>Set the callback which is used to handle incoming money. The callback should expect one parameter (the amount)
-   * and return a {@link CompletableFuture}. If an error occurs, the callback MAY throw an exception. In general, the
-   * callback should behave as {@link #sendMoney(BigInteger)} does.</p>
-   *
-   * <p>If a money handler is already set, this method throws a {@link MoneyHandlerAlreadyRegisteredException}. In
-   * order to change the money handler, the old handler must first be removed via {@link #unregisterMoneyHandler()}.
-   * This is to ensure that handlers are not overwritten by accident.</p>
-   *
-   * <p>If incoming money is received by the plugin, but no handler is registered, the plugin SHOULD return an error
-   * (and MAY return the money.)</p>
-   *
-   * @param moneyHandler An instance of {@link BilateralMoneyHandler}.
-   */
   @Override
-  public void registerMoneyHandler(final BilateralMoneyHandler moneyHandler)
+  public void registerMoneyHandler(final MoneyHandler moneyHandler)
       throws MoneyHandlerAlreadyRegisteredException {
     Objects.requireNonNull(moneyHandler, "moneyHandler must not be null!");
     if (!this.moneyHandlerAtomicReference.compareAndSet(null, moneyHandler)) {
       throw new MoneyHandlerAlreadyRegisteredException(
-          "BilateralMoneyHandler may not be registered twice. Call unregisterMoneyHandler first!",
+          "MoneyHandler may not be registered twice. Call unregisterMoneyHandler first!",
           this.getPluginSettings().getLocalNodeAddress()
       );
     }
   }
 
-  /**
-   * Removes the currently used money handler. This has the same effect as if {@link
-   * #registerMoneyHandler(BilateralMoneyHandler)} had never been called. If no money handler is currently set, this
-   * method does nothing.
-   */
   @Override
   public void unregisterMoneyHandler() {
     this.moneyHandlerAtomicReference.set(null);
   }
 
-//  @Override
-//  public CompletableFuture<Optional<InterledgerResponsePacket>> handleIncomingData(
-//      final InterledgerPreparePacket incomingPreparePacket) {
-//    Objects.requireNonNull(incomingPreparePacket);
-//
-//    return this.getDataHandler()
-//        .map(handler -> handler.handleIncomingData(incomingPreparePacket))
-//        .orElseThrow(() -> new MoneyHandlerAlreadyRegisteredException(
-//            "BilateralMoneyHandler may not be registered twice. Call unregisterMoneyHandler first!",
-//            this.getPluginSettings().getLocalNodeAddress()
-//        ));
-//  }
+  @Override
+  public Optional<MoneySender> getMoneySender() {
+    return Optional.ofNullable(moneySenderAtomicReference.get());
+  }
 
-//  @Override
-//  public CompletableFuture<Void> handleIncomingMoney(BigInteger amount) throws InterledgerProtocolException {
-//    Objects.requireNonNull(amount);
-//
-//    return this.getMoneyHandler()
-//        .map(handler -> handler.handleIncomingMoney(amount))
-//        .orElseThrow(() -> new MoneyHandlerAlreadyRegisteredException(
-//            "BilateralMoneyHandler may not be registered twice. Call unregisterMoneyHandler first!",
-//            this.getPluginSettings().getLocalNodeAddress()
-//        ));
-//  }
+  @Override
+  public void registerMoneySender(final MoneySender moneySender)
+      throws MoneySenderAlreadyRegisteredException {
+    Objects.requireNonNull(moneySender, "moneySender must not be null!");
+    if (!this.moneySenderAtomicReference.compareAndSet(null, moneySender)) {
+      throw new MoneyHandlerAlreadyRegisteredException(
+          "MoneySender may not be registered twice. Call unregisterMoneySender first!",
+          this.getPluginSettings().getLocalNodeAddress()
+      );
+    }
+  }
+
+  @Override
+  public void unregisterMoneySender() {
+    this.moneySenderAtomicReference.set(null);
+  }
 
   /**
    * An example {@link PluginEventEmitter} that allows events to be synchronously emitted into a {@link Plugin}.
