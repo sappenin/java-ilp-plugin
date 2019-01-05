@@ -12,7 +12,7 @@
   <artifactId>ilp-plugin-core</artifactId>
 
   <name>ILP Plugin Core</name>
-  <description>Java implementation of a ILP Plugin Core Interface</description>
+  <description>Java implementation of the ILP Plugin v2 Core Interface</description>
 
   <dependencies>
 

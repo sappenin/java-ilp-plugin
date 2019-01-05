@@ -1,7 +1,7 @@
 package org.interledger.plugin.lpiv2.exceptions;
 
 import org.interledger.core.InterledgerAddress;
-import org.interledger.plugin.BilateralSender.MoneySender;
+import org.interledger.plugin.MoneySender;
 import org.interledger.plugin.lpiv2.Plugin;
 
 /**

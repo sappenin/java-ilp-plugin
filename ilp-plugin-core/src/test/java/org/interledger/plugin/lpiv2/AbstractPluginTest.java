@@ -10,7 +10,6 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.verifyZeroInteractions;
 
 import org.interledger.core.InterledgerPreparePacket;
-import org.interledger.core.InterledgerProtocolException;
 import org.interledger.core.InterledgerResponsePacket;
 import org.interledger.plugin.lpiv2.TestHelpers.ExtendedPluginSettings;
 import org.interledger.plugin.lpiv2.events.PluginEventListener;
@@ -49,6 +48,17 @@ public class AbstractPluginTest {
     this.abstractPlugin = new AbstractPlugin<ExtendedPluginSettings>(extendedPluginSettings) {
 
       @Override
+      public CompletableFuture<Optional<InterledgerResponsePacket>> sendData(InterledgerPreparePacket preparePacket) {
+        // Simulate a timeout.
+        return CompletableFuture.completedFuture(Optional.empty());
+      }
+
+      @Override
+      public CompletableFuture<Void> sendMoney(BigInteger amount) {
+        return CompletableFuture.completedFuture(null);
+      }
+
+      @Override
       public CompletableFuture<Void> doConnect() {
         return CompletableFuture.completedFuture(null);
       }
@@ -59,11 +69,9 @@ public class AbstractPluginTest {
       }
     };
 
-    abstractPlugin.registerDataSender((preparePacket) -> CompletableFuture.completedFuture(Optional.empty()));
-    abstractPlugin.registerMoneySender((amount) -> CompletableFuture.completedFuture(null));
     abstractPlugin.registerDataHandler((sourcePreparePacket) ->
         CompletableFuture.supplyAsync(() -> Optional.of(TestHelpers.getSendDataFulfillPacket())
-    ));
+        ));
     abstractPlugin.registerMoneyHandler((amount -> CompletableFuture.supplyAsync(() -> null)));
 
     abstractPlugin.addPluginEventListener(UUID.randomUUID(), pluginEventListenerMock);

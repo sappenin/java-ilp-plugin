@@ -1,16 +1,18 @@
 package org.interledger.plugin.lpiv2;
 
 import org.interledger.core.InterledgerPreparePacket;
-import org.interledger.plugin.BilateralPinger;
-import org.interledger.plugin.BilateralReceiver;
-import org.interledger.plugin.BilateralSender;
 import org.interledger.plugin.Connectable;
+import org.interledger.plugin.DataHandler;
+import org.interledger.plugin.DataSender;
+import org.interledger.plugin.MoneyHandler;
+import org.interledger.plugin.MoneySender;
+import org.interledger.plugin.Ping;
 import org.interledger.plugin.lpiv2.events.PluginEventListener;
 import org.interledger.plugin.lpiv2.exceptions.DataHandlerAlreadyRegisteredException;
 import org.interledger.plugin.lpiv2.exceptions.MoneyHandlerAlreadyRegisteredException;
-import org.interledger.plugin.lpiv2.exceptions.MoneySenderAlreadyRegisteredException;
 
 import java.math.BigInteger;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -28,13 +30,12 @@ import java.util.concurrent.CompletableFuture;
  * Sender/Connector's call <tt>sendData</tt>, wait for a fulfillment, and then call <tt>sendMoney</tt> (possibly
  * infrequently or even only eventually for bulk settlement) if the fulfillment is valid.</p>
  */
-public interface Plugin<T extends PluginSettings> extends BilateralPinger, BilateralSender, BilateralReceiver,
-    Connectable {
+public interface Plugin<PS extends PluginSettings> extends Ping, DataSender, MoneySender, Connectable {
 
   /**
    * The settings for this Plugin.
    */
-  T getPluginSettings();
+  PS getPluginSettings();
 
   /**
    * Add a  plugin event handler to this plugin.
@@ -47,6 +48,7 @@ public interface Plugin<T extends PluginSettings> extends BilateralPinger, Bilat
    *
    * @return A {@link UUID} representing the unique identifier of the handler, as seen by this ledger plugin.
    */
+  // TODO: Remove the UUID and use a SET.
   void addPluginEventListener(UUID eventHandlerId, PluginEventListener eventHandler);
 
   /**
@@ -56,24 +58,6 @@ public interface Plugin<T extends PluginSettings> extends BilateralPinger, Bilat
    *                       plugin.
    */
   void removePluginEventListener(UUID eventHandlerId);
-
-  void registerDataSender(BilateralSender.DataSender dataSender) throws MoneySenderAlreadyRegisteredException;
-
-  /**
-   * Removes the currently used {@oink DataSender}. This has the same effect as if {@link
-   * #registerDataSender(DataSender)} had never been called. If no bilateral sender is currently set, this method does
-   * nothing.
-   */
-  void unregisterDataSender();
-
-  void registerMoneySender(BilateralSender.MoneySender moneySender) throws MoneySenderAlreadyRegisteredException;
-
-  /**
-   * Removes the currently used {@oink DataSender}. This has the same effect as if {@link
-   * #registerDataSender(DataSender)} had never been called. If no bilateral sender is currently set, this method does
-   * nothing.
-   */
-  void unregisterMoneySender();
 
   /**
    * <p>Set the callback which is used to handle incoming prepared data packets. The handler should expect one
@@ -90,7 +74,27 @@ public interface Plugin<T extends PluginSettings> extends BilateralPinger, Bilat
    *
    * @param dataHandler An instance of {@link DataHandler}.
    */
-  void registerDataHandler(BilateralReceiver.DataHandler dataHandler) throws DataHandlerAlreadyRegisteredException;
+  void registerDataHandler(DataHandler dataHandler) throws DataHandlerAlreadyRegisteredException;
+
+  /**
+   * Accessor for the currently registered (though optionally-present) {@link DataHandler}.
+   *
+   * @return An optionally-present {@link DataHandler}.
+   */
+  Optional<DataHandler> getDataHandler();
+
+  /**
+   * Accessor for the currently registered (though optionally-present) {@link DataHandler}.
+   *
+   * @return The currently registered {@link DataHandler}.
+   *
+   * @throws RuntimeException if no handler is registered (A Plugin is not in a valid state until it has handlers
+   *                          registered)
+   */
+  default DataHandler safeGetDataHandler() {
+    return this.getDataHandler()
+        .orElseThrow(() -> new RuntimeException("You MUST register a DataHandler before using this plugin!"));
+  }
 
   /**
    * Removes the currently used {@link DataHandler}. This has the same effect as if {@link
@@ -100,9 +104,30 @@ public interface Plugin<T extends PluginSettings> extends BilateralPinger, Bilat
   void unregisterDataHandler();
 
   /**
+   * Accessor for the currently registered (though optionally-present) {@link MoneyHandler}.
+   *
+   * @return An optionally-present {@link MoneyHandler}.
+   */
+  Optional<MoneyHandler> getMoneyHandler();
+
+  /**
+   * Accessor for the currently registered (though optionally-present) {@link MoneyHandler}.
+   *
+   * @return The currently registered {@link MoneyHandler}.
+   *
+   * @throws RuntimeException if no handler is registered (A Plugin is not in a valid state until it has handlers
+   *                          registered)
+   */
+  default MoneyHandler safeGetMoneyHandler() {
+    return this.getMoneyHandler()
+        .orElseThrow(
+            () -> new RuntimeException("You MUST register an MoneyHandler before using this plugin!"));
+  }
+
+  /**
    * <p>Set the callback which is used to handle incoming money. The callback should expect one parameter (the amount)
    * and return a {@link CompletableFuture}. If an error occurs, the callback MAY throw an exception. In general, the
-   * callback should behave as {@link MoneySender#sendMoney(BigInteger)} does.</p>
+   * callback should behave as {@link #sendMoney(BigInteger)} does.</p>
    *
    * <p>If a money handler is already set, this method throws a {@link MoneyHandlerAlreadyRegisteredException}. In
    * order to change the money handler, the old handler must first be removed via {@link #unregisterMoneyHandler()}.
@@ -113,7 +138,7 @@ public interface Plugin<T extends PluginSettings> extends BilateralPinger, Bilat
    *
    * @param moneyHandler An instance of {@link MoneyHandler}.
    */
-  void registerMoneyHandler(BilateralReceiver.MoneyHandler moneyHandler) throws MoneyHandlerAlreadyRegisteredException;
+  void registerMoneyHandler(MoneyHandler moneyHandler) throws MoneyHandlerAlreadyRegisteredException;
 
   /**
    * Removes the currently used money handler. This has the same effect as if {@link

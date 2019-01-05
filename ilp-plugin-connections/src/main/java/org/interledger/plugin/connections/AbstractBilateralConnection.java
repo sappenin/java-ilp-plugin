@@ -1,13 +1,6 @@
 package org.interledger.plugin.connections;
 
-import org.interledger.core.InterledgerAddress;
-import org.interledger.plugin.connections.mux.BilateralReceiverMux;
-import org.interledger.plugin.connections.mux.BilateralSenderMux;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.Objects;
+import org.interledger.plugin.connections.settings.BilateralConnectionSettings;
 
 /**
  * <p>An abstract implementation of {@link BilateralConnection}. By default, Connections support multiple
@@ -15,215 +8,139 @@ import java.util.Objects;
  * protocols like vanilla BTP, which only supports `auth_token` and assumes only a single account per Websocket
  * connection.</p>
  *
- * <p>Generally, however, this mechanism enables distinct sender and receiver MUXes that can operate on distinct
- * network transports. For example, BPP utilizes different network connections for outgoing data vs incoming data.</p>
- *
- * <p>Note that the actual network transport connection handling always occurs in the MUX level, and never at the
- * Bilateral Connection level. This ensures a uniform design regardless of if a connection has a single underlying
- * transport, or two transports (one in the senderMux and one in the receiverMux).</p>
+ * <p>The actual network transport connections are contained in sub-classes of this class, and are handed-off to
+ * plugins when the plugins are instantiated. This ensures a uniform design regardless of if a connection has a single
+ * underlying transport, or two transports, such as in the BPP protocol.
  */
-public class AbstractBilateralConnection<SM extends BilateralSenderMux, RM extends BilateralReceiverMux>
-    implements BilateralConnection<SM, RM> {
+public abstract class AbstractBilateralConnection<CS extends BilateralConnectionSettings> {
+  // implementsBilateralConnection<CS> {
 
-  protected final Logger logger = LoggerFactory.getLogger(this.getClass());
-
-  //private final UUID bilateralConnectionId = UUID.randomUUID();
-  private final InterledgerAddress operatorAddress;
-
-  // E.g., a gRPC client or server.
-  private final SM bilateralSenderMux;
-  private final RM bilateralReceiverMux;
-
-  //private final BilateralConnectionTracker connectionTracker;
-
-  // NOTE: A Bilateral Connection should emit sender and receiver specific MUX events instead of its own events because
-  // anyone using this BC abstraction will want to be able to tell the difference between the sender and receiver connecting.
-
-  // The emitter used by this plugin.
-  //private BilateralConnectionEventEmitter eventEmitter;
-
+//  private final AtomicBoolean connected = new AtomicBoolean(NOT_CONNECTED);
+//  private final CS connectionSettings;
+//
+//  private final PluginFactory pluginFactory;
+//  protected Logger logger = LoggerFactory.getLogger(this.getClass());
+//
 //  /**
 //   * Required-args Constructor.
 //   */
 //  public AbstractBilateralConnection(
-//      final InterledgerAddress operatorAddress, final SM bilateralSenderMux, final RM bilateralReceiverMux
+//      final CS connectionSettings,
+//      final PluginFactory pluginFactory
 //  ) {
-//    this(operatorAddress, bilateralSenderMux, bilateralReceiverMux, new SyncBilateralConnectionEventEmitter()
-//    );
+//    // TODO: Use EventBus instead
+//    //this.eventEmitter = Objects.requireNonNull(eventEmitter);
+//
+//    this.connectionSettings = Objects.requireNonNull(connectionSettings);
+//    this.pluginFactory = Objects.requireNonNull(pluginFactory);
 //  }
-
-  /**
-   * Required-args Constructor.
-   */
-  public AbstractBilateralConnection(
-      final InterledgerAddress operatorAddress, final SM bilateralSenderMux, final RM bilateralReceiverMux
-      //final BilateralConnectionEventEmitter eventEmitter
-  ) {
-    this.operatorAddress = Objects.requireNonNull(operatorAddress);
-    this.bilateralSenderMux = Objects.requireNonNull(bilateralSenderMux);
-    this.bilateralReceiverMux = Objects.requireNonNull(bilateralReceiverMux);
-
-    // TODO: Use EventBus instead
-    //this.eventEmitter = Objects.requireNonNull(eventEmitter);
-  }
-
-  @Override
-  public InterledgerAddress getOperatorAddress() {
-    return this.operatorAddress;
-  }
-
+//
+//  // TODO: Connection Events!
+//
+////  /**
+////   * An example {@link BilateralConnectionEventEmitter} that allows events to be synchronously emitted to any
+////   * listeners.
+////   *
+////   * @deprecated Transition this to EventBus.
+////   */
+////  @Deprecated
+////  public static class SyncBilateralConnectionEventEmitter implements BilateralConnectionEventEmitter {
+////
+////    private final Map<UUID, BilateralConnectionEventListener> eventListeners;
+////
+////    public SyncBilateralConnectionEventEmitter() {
+////      this.eventListeners = Maps.newConcurrentMap();
+////    }
+////
+////    /////////////////
+////    // Event Emitters
+////    /////////////////
+////
+////    @Override
+////    public void emitEvent(final BilateralConnectionConnectedEvent event) {
+////      Objects.requireNonNull(event);
+////      this.eventListeners.values().stream().forEach(handler -> handler.onConnect(event));
+////    }
+////
+////    @Override
+////    public void emitEvent(final BilateralConnectionDisconnectedEvent event) {
+////      Objects.requireNonNull(event);
+////      this.eventListeners.values().stream().forEach(handler -> handler.onDisconnect(event));
+////    }
+////
+////    @Override
+////    public void addEventListener(
+////        final UUID eventListenerId, final BilateralConnectionEventListener eventListener
+////    ) {
+////      Objects.requireNonNull(eventListenerId);
+////      Objects.requireNonNull(eventListener);
+////      this.eventListeners.put(eventListenerId, eventListener);
+////    }
+////
+////    @Override
+////    public void removeEventListener(final UUID eventListenerId) {
+////      Objects.requireNonNull(eventListenerId);
+////      this.eventListeners.remove(eventListenerId);
+////    }
+////  }
+//
+//  @Override
+//  public boolean isConnected() {
+//    return this.connected.get();
+//  }
+//
+//  /**
+//   * <p>Connect to the remote peer.</p>
+//   */
 //  @Override
 //  public final CompletableFuture<Void> connect() {
-//    logger.debug("Connecting BilateralConnection: `{}`...", bilateralConnectionId);
-//    return this.connectionTracker.connect();
+//    // Try to connect, but no-op if already connected.
+//    if (this.connected.compareAndSet(NOT_CONNECTED, CONNECTED)) {
+//      return this.doConnectTransport().thenApply($ -> {
+//        logger.info("Connected to {}.", getConnectionSettings().getRemoteAddress());
+//        return null;
+//      });
+//    } else {
+//      logger.warn("Connection already connected to {}!", getConnectionSettings().getRemoteAddress());
+//      return CompletableFuture.completedFuture(null);
+//    }
 //  }
 //
-//  @Override
-//  public final void close() {
-//    this.disconnect().join();
-//  }
+//  /**
+//   * Perform the logic of connecting the actual transport(s) supporting this bilateral connection.
+//   */
+//  public abstract CompletableFuture<Void> doConnectTransport();
 //
+//  /**
+//   * Disconnect from the remote peer.
+//   */
 //  @Override
 //  public final CompletableFuture<Void> disconnect() {
-//    logger.debug("Disconnecting BilateralConnection: `{}`...", bilateralConnectionId);
-//    return this.connectionTracker.disconnect();
-//  }
-
-//  @Override
-//  public final boolean isConnected() {
-//    return this.connectionTracker.isConnected();
-//  }
-
-  @Override
-  public RM getBilateralReceiverMux() {
-    return this.bilateralReceiverMux;
-  }
-
-//  @Override
-//  public void addConnectionEventListener(
-//      final UUID eventListenerId, final BilateralConnectionEventListener eventListener
-//  ) {
-//    Objects.requireNonNull(eventListenerId);
-//    Objects.requireNonNull(eventListener);
-//    this.eventEmitter.addEventListener(eventListenerId, eventListener);
-//  }
-//
-//  @Override
-//  public void removeConnectionEventListener(UUID eventListenerId) {
-//    Objects.requireNonNull(eventListenerId);
-//    this.eventEmitter.removeEventListener(eventListenerId);
-//  }
-
-  @Override
-  public SM getBilateralSenderMux() {
-    return this.bilateralSenderMux;
-  }
-
-//  @Override
-//  public void onConnect(final BilateralConnectionConnectedEvent event) {
-//    Objects.requireNonNull(event);
-//    logger.debug("BilateralSenderMuxConnectedEvent: {}", event);
-//
-//    // Each MUX is already listening to BC events, so this is a no-op.
-//  }
-//
-//  @Override
-//  public void onDisconnect(final BilateralConnectionDisconnectedEvent event) {
-//    Objects.requireNonNull(event);
-//    logger.debug("BilateralSenderMuxDisconnectedEvent: {}", event);
-//
-//    // Each MUX is already listening to BC events, so this is a no-op.
-//  }
-
-//  protected BilateralConnectionEventEmitter getEventEmitter() {
-//    return eventEmitter;
+//    // Try to disconnect, but no-op if already disconnected.
+//    if (this.connected.compareAndSet(CONNECTED, NOT_CONNECTED)) {
+//      return this.doDisconnectTransport().thenApply($ -> {
+//        logger.info("Disconnected from {}.", getConnectionSettings().getRemoteAddress());
+//        return null;
+//      });
+//    } else {
+//      logger.warn("Connection already disconnected from {}!", getConnectionSettings().getRemoteAddress());
+//      return CompletableFuture.completedFuture(null);
+//    }
 //  }
 //
 //  /**
-//   * Called to handle an {@link BilateralReceiverMuxConnectedEvent}.
-//   *
-//   * @param event A {@link BilateralReceiverMuxConnectedEvent}.
+//   * Perform the logic of disconnecting the actual transport(s) supporting this bilateral connection.
 //   */
+//  public abstract CompletableFuture<Void> doDisconnectTransport();
+//
 //  @Override
-//  public void onConnect(BilateralReceiverMuxConnectedEvent event) {
-//    throw new RuntimeException("TODO");
+//  public CS getConnectionSettings() {
+//    return this.connectionSettings;
 //  }
 //
-//  /**
-//   * Called to handle an {@link BilateralReceiverMuxDisconnectedEvent}.
-//   *
-//   * @param event A {@link BilateralReceiverMuxDisconnectedEvent}.
-//   */
-//  @Override
-//  public void onDisconnect(BilateralReceiverMuxDisconnectedEvent event) {
-//    throw new RuntimeException("TODO");
+//  public PluginFactory getPluginFactory() {
+//    return pluginFactory;
 //  }
 //
-//  /**
-//   * Called to handle an {@link BilateralSenderMuxConnectedEvent}.
-//   *
-//   * @param event A {@link BilateralSenderMuxConnectedEvent}.
-//   */
-//  @Override
-//  public void onConnect(BilateralSenderMuxConnectedEvent event) {
-//    throw new RuntimeException("TODO");
-//  }
-//
-//  /**
-//   * Called to handle an {@link BilateralSenderMuxDisconnectedEvent}.
-//   *
-//   * @param event A {@link BilateralSenderMuxDisconnectedEvent}.
-//   */
-//  @Override
-//  public void onDisconnect(BilateralSenderMuxDisconnectedEvent event) {
-//    throw new RuntimeException("TODO");
-//  }
-
-//  /**
-//   * An example {@link BilateralConnectionEventEmitter} that allows events to be synchronously emitted to any
-//   * listeners.
-//   *
-//   * @deprecated Transition this to EventBus.
-//   */
-//  @Deprecated
-//  public static class SyncBilateralConnectionEventEmitter implements BilateralConnectionEventEmitter {
-//
-//    private final Map<UUID, BilateralConnectionEventListener> eventListeners;
-//
-//    public SyncBilateralConnectionEventEmitter() {
-//      this.eventListeners = Maps.newConcurrentMap();
-//    }
-//
-//    /////////////////
-//    // Event Emitters
-//    /////////////////
-//
-//    @Override
-//    public void emitEvent(final BilateralConnectionConnectedEvent event) {
-//      Objects.requireNonNull(event);
-//      this.eventListeners.values().stream().forEach(handler -> handler.onConnect(event));
-//    }
-//
-//    @Override
-//    public void emitEvent(final BilateralConnectionDisconnectedEvent event) {
-//      Objects.requireNonNull(event);
-//      this.eventListeners.values().stream().forEach(handler -> handler.onDisconnect(event));
-//    }
-//
-//    @Override
-//    public void addEventListener(
-//        final UUID eventListenerId, final BilateralConnectionEventListener eventListener
-//    ) {
-//      Objects.requireNonNull(eventListenerId);
-//      Objects.requireNonNull(eventListener);
-//      this.eventListeners.put(eventListenerId, eventListener);
-//    }
-//
-//    @Override
-//    public void removeEventListener(final UUID eventListenerId) {
-//      Objects.requireNonNull(eventListenerId);
-//      this.eventListeners.remove(eventListenerId);
-//    }
-//  }
 
 }

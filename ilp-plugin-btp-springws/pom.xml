@@ -11,9 +11,9 @@
 
   <artifactId>ilp-plugin-btp-springws</artifactId>
 
-  <name>ILP Plugin BTP 2.0 over Spring WebSockets</name>
+  <name>ILP Plugin BTP over Spring WebSockets</name>
   <description>
-    Java implementation of a BTP Plugin that communicates over WebSockets using Spring libraries.
+    Java implementation of a BTP 2.0 Plugin that communicates over WebSockets using Spring libraries.
   </description>
 
   <properties>

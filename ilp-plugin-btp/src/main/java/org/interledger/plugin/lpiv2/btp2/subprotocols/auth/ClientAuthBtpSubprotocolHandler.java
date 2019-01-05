@@ -1,25 +1,17 @@
 package org.interledger.plugin.lpiv2.btp2.subprotocols.auth;
 
-import static org.interledger.btp.BtpErrorCode.F00_NotAcceptedError;
-
 import org.interledger.btp.BtpError;
 import org.interledger.btp.BtpMessage;
 import org.interledger.btp.BtpResponse;
 import org.interledger.btp.BtpRuntimeException;
 import org.interledger.btp.BtpSession;
-import org.interledger.btp.BtpSessionCredentials;
 import org.interledger.btp.BtpSubProtocol;
 import org.interledger.btp.BtpTransfer;
-import org.interledger.btp.ImmutableBtpSessionCredentials;
-import org.interledger.core.InterledgerAddress;
 import org.interledger.plugin.lpiv2.btp2.subprotocols.AbstractBtpSubProtocolHandler;
-import org.interledger.plugin.lpiv2.btp2.subprotocols.BtpAuthenticator;
 
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-
-import javax.security.auth.login.AccountNotFoundException;
 
 /**
  * An extension of {@link AbstractBtpSubProtocolHandler} for handling the <tt>auth</tt> sub-protocol as defined in
@@ -29,12 +21,6 @@ import javax.security.auth.login.AccountNotFoundException;
  * @see "https://github.com/interledger/rfcs/blob/master/0023-bilateral-transfer-protocol/0023-bilateral-transfer-protocol.md#authentication"
  */
 public class ClientAuthBtpSubprotocolHandler extends AuthBtpSubprotocolHandler {
-
-  //private final BtpAuthenticator btpAuthenticator;
-
-//  public ClientAuthBtpSubprotocolHandler(final BtpAuthenticator btpAuthenticator) {
-//    this.btpAuthenticator = Objects.requireNonNull(btpAuthenticator);
-//  }
 
   /**
    * When this handler is operating in a BTP client, if this method returns a valid, empty {@link BtpResponse} with
@@ -61,6 +47,9 @@ public class ClientAuthBtpSubprotocolHandler extends AuthBtpSubprotocolHandler {
   public CompletableFuture<Optional<BtpSubProtocol>> handleSubprotocolDataForBtpMessage(
       final BtpSession btpSession, final BtpMessage incomingBtpMessage
   ) throws BtpRuntimeException {
+    Objects.requireNonNull(btpSession);
+    Objects.requireNonNull(incomingBtpMessage);
+
     logger.debug("BTP Auth (Incoming BtpMessage): {}", incomingBtpMessage);
     return CompletableFuture.completedFuture(Optional.empty());
   }
@@ -72,7 +61,10 @@ public class ClientAuthBtpSubprotocolHandler extends AuthBtpSubprotocolHandler {
   public CompletableFuture<Optional<BtpSubProtocol>> handleSubprotocolDataForBtpTransfer(
       final BtpSession btpSession, final BtpTransfer incomingBtpTransfer
   ) throws BtpRuntimeException {
-    logger.debug("BTP Auth (Incoming BtpTransfer): {}", incomingBtpTransfer);
+    Objects.requireNonNull(btpSession);
+    Objects.requireNonNull(incomingBtpTransfer);
+
+    logger.error("BTP Auth Handler encountered incoming BtpTransfer but should not have: {}", incomingBtpTransfer);
     return CompletableFuture.completedFuture(Optional.empty());
   }
 

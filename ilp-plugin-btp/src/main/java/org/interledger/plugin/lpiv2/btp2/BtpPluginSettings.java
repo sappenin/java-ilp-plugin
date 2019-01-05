@@ -38,10 +38,11 @@ public interface BtpPluginSettings extends PluginSettings {
         .map(Object::toString)
         .ifPresent(builder::authUsername);
 
-    return builder
-        .secret(
-            Objects.requireNonNull(customSettings.get(KEY_SECRET), "`secret` not found in customSettings!").toString()
-        );
+    Optional.ofNullable(customSettings.get(KEY_SECRET))
+        .map(Object::toString)
+        .ifPresent(builder::secret);
+
+    return builder;
   }
 
   /**

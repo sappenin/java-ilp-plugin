@@ -6,7 +6,6 @@ import org.interledger.btp.BtpMessage;
 import org.interledger.btp.BtpResponse;
 import org.interledger.btp.BtpRuntimeException;
 import org.interledger.btp.BtpSession;
-import org.interledger.btp.BtpSessionCredentials;
 import org.interledger.btp.BtpSubProtocol;
 import org.interledger.btp.BtpSubProtocols;
 import org.interledger.btp.BtpTransfer;
@@ -16,7 +15,7 @@ import org.interledger.core.InterledgerPreparePacket;
 import org.interledger.core.InterledgerResponsePacket;
 import org.interledger.core.asn.framework.InterledgerCodecContextFactory;
 import org.interledger.encoding.asn.framework.CodecContext;
-import org.interledger.plugin.BilateralReceiver.DataHandler;
+import org.interledger.plugin.DataHandler;
 import org.interledger.plugin.lpiv2.Plugin;
 import org.interledger.plugin.lpiv2.btp2.subprotocols.AbstractBtpSubProtocolHandler;
 import org.interledger.plugin.lpiv2.exceptions.DataHandlerAlreadyRegisteredException;
@@ -84,7 +83,10 @@ public class IlpBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
    * @param ilpCodecContext A {@link CodecContext} that can operate on ILP primitives.
    *
    * @return A {@link BtpSubProtocol}
+   *
+   * @deprecated Replace with {@link IlpBtpConverter}
    */
+  @Deprecated
   public static BtpSubProtocol toBtpSubprotocol(
       final InterledgerPacket ilpPacket, final CodecContext ilpCodecContext
   ) {
@@ -111,7 +113,10 @@ public class IlpBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
    * @param ilpCodecContext A {@link CodecContext} that can read ILP Packets.
    *
    * @return An newly constructed {@link InterledgerPacket}.
+   *
+   * @deprecated Replace with {@link IlpBtpConverter}
    */
+  @Deprecated
   public static InterledgerResponsePacket toIlpPacket(
       BtpResponse btpResponse, final CodecContext ilpCodecContext
   ) {
@@ -141,9 +146,10 @@ public class IlpBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
     Preconditions.checkArgument(dataHandlerAtomicReference.get() != null,
         "ilpPluginDataHandler must be set before using this handler!");
 
-    // Throws if there's an auth problem. The auth subprotocol should have been the first set of messages for a given
-    // BtpSession, so if that didn't happen, then these ILP messages should not be coming...
-    final InterledgerAddress sourceAccountAddress = this.getSourceAccountFromSession(btpSession);
+    // Throws if there's an auth problem.
+    if (!btpSession.isAuthenticated()) {
+      throw new BtpRuntimeException(BtpErrorCode.F00_NotAcceptedError, "BtpSession not authenticated!");
+    }
 
     try {
       // Convert to an ILP Prepare packet.
@@ -191,7 +197,6 @@ public class IlpBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
     Objects.requireNonNull(incomingBtpTransfer);
 
     logger.debug("Incoming ILP Subprotocol BtpTransfer: {}", incomingBtpTransfer);
-
     return CompletableFuture.completedFuture(Optional.empty());
   }
 
@@ -232,15 +237,17 @@ public class IlpBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
    * <p>If an incoming packet is received by the plugin, but no handler is registered, the plugin SHOULD respond with
    * an error.</p>
    *
-   * @param dataHandler An instance of {@link DataHandler}.
+   * @param operatorAddress The {@link InterledgerAddress} of the node operating this handler.
+   * @param dataHandler     An instance of {@link DataHandler}.
    */
-  public void registerDataHandler(final InterledgerAddress localNodeAddress, final DataHandler dataHandler)
+  public void registerDataHandler(final InterledgerAddress operatorAddress, final DataHandler dataHandler)
       throws DataHandlerAlreadyRegisteredException {
 
+    Objects.requireNonNull(operatorAddress, "operatorAddress must not be null!");
     Objects.requireNonNull(dataHandler, "dataHandler must not be null!");
     if (!this.dataHandlerAtomicReference.compareAndSet(null, dataHandler)) {
       throw new DataHandlerAlreadyRegisteredException(
-          "DataHandler may not be registered twice. Call unregisterDataHandler first!", localNodeAddress
+          "DataHandler may not be registered twice. Call unregisterDataHandler first!", operatorAddress
       );
     }
   }
@@ -270,20 +277,5 @@ public class IlpBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
    */
   public void unregisterDataHandler() {
     this.dataHandlerAtomicReference.set(null);
-  }
-
-  protected InterledgerAddress getSourceAccountFromSession(final BtpSession btpSession) {
-    Objects.requireNonNull(btpSession);
-
-    if (!btpSession.isAuthenticated()) {
-      throw new BtpRuntimeException(BtpErrorCode.F00_NotAcceptedError, "BtpSession not authenticated!");
-    } else {
-      return btpSession.getBtpSessionCredentials()
-          .map(BtpSessionCredentials::getAuthUsername)
-          .filter(Optional::isPresent)
-          .map(Optional::get)
-          .map(InterledgerAddress::of)
-          .orElseThrow(() -> new RuntimeException("No auth_username found in BtpSession"));
-    }
   }
 }

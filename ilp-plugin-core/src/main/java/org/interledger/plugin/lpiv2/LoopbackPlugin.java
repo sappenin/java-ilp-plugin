@@ -3,7 +3,10 @@ package org.interledger.plugin.lpiv2;
 import org.interledger.core.InterledgerAddress;
 import org.interledger.core.InterledgerFulfillPacket;
 import org.interledger.core.InterledgerFulfillment;
+import org.interledger.core.InterledgerPreparePacket;
+import org.interledger.core.InterledgerResponsePacket;
 
+import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -36,24 +39,7 @@ public class LoopbackPlugin extends AbstractPlugin<PluginSettings> implements Pl
   public LoopbackPlugin(final InterledgerAddress localNodeAddress, final InterledgerAddress accountAddress) {
     super(pluginSettings(localNodeAddress, accountAddress));
 
-    // A connector that calls sendData with a preparePacket will receive a Fulfill packet using the PREIMAGE that was
-    // passed inside of the original PREPARE packet.
-    this.registerDataSender((outgoingPreparePacket) -> CompletableFuture.supplyAsync(() -> {
-          final byte[] preimage = Arrays.copyOfRange(outgoingPreparePacket.getData(), 0, 32);
-          return Optional.of(
-              InterledgerFulfillPacket.builder()
-                  .fulfillment(
-                      InterledgerFulfillment.of(preimage)
-                  )
-                  .build()
-          );
-        })
-    );
-
-    // Sending Money on a Loopback plugin is a no-op
-    this.registerMoneySender((amount) -> CompletableFuture.completedFuture(null));
-
-    // This is called when the other side of the account relationship has called sendMoney, and a packet has been
+    // This is called when the other side of the account relationship has called sendData, and a packet has been
     // forward (usually through a Connector) to this plugin, which will handle the incoming prepare packet.
     this.registerDataHandler((incomingPreparePacket) -> CompletableFuture.supplyAsync(() -> {
           final byte[] preimage = Arrays.copyOfRange(incomingPreparePacket.getData(), 0, 32);
@@ -75,8 +61,8 @@ public class LoopbackPlugin extends AbstractPlugin<PluginSettings> implements Pl
   ) {
     return PluginSettings.builder()
         .pluginType(LoopbackPlugin.PLUGIN_TYPE)
-        .localNodeAddress(localNodeAddress)
-        .peerAccountAddress(accountAddress)
+        .operatorAddress(localNodeAddress)
+        .accountAddress(accountAddress)
         .build();
   }
 
@@ -89,6 +75,33 @@ public class LoopbackPlugin extends AbstractPlugin<PluginSettings> implements Pl
   @Override
   public CompletableFuture<Void> doDisconnect() {
     // No-op
+    return CompletableFuture.completedFuture(null);
+  }
+
+  /**
+   * Any caller that calls this method will receive a Fulfill packet using the PREIMAGE that was encoded into the
+   * supplied {@code preparePacket}.
+   *
+   * @param preparePacket An {@link InterledgerPreparePacket} with information that can be used to
+   *
+   * @return
+   */
+  @Override
+  public CompletableFuture<Optional<InterledgerResponsePacket>> sendData(InterledgerPreparePacket preparePacket) {
+    return CompletableFuture.supplyAsync(() -> {
+      if (preparePacket.getData().length != 32) {
+        throw new RuntimeException("Loopback Plugin must contain 32 bytes of data to use as a Preimage!");
+      }
+
+      final byte[] preimage = Arrays.copyOfRange(preparePacket.getData(), 0, 32);
+      return Optional.of(InterledgerFulfillPacket.builder().fulfillment(InterledgerFulfillment.of(preimage)).build());
+    });
+  }
+
+
+  @Override
+  public CompletableFuture<Void> sendMoney(BigInteger amount) {
+    // No-op. Loopback Plugins don't track balances.
     return CompletableFuture.completedFuture(null);
   }
 }

@@ -37,7 +37,7 @@ public class TestHelpers {
        * The ILP Address for remote peer account this Plugin is connecting to...
        */
       @Override
-      public InterledgerAddress getPeerAccountAddress() {
+      public InterledgerAddress getAccountAddress() {
         return PEER_ACCOUNT;
       }
 
@@ -45,7 +45,7 @@ public class TestHelpers {
        * The ILP address of the ILP Node operating this plugin.
        */
       @Override
-      public InterledgerAddress getLocalNodeAddress() {
+      public InterledgerAddress getOperatorAddress() {
         return LOCAL_NODE_ADDRESS;
       }
 

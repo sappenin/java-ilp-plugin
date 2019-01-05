@@ -21,14 +21,14 @@ public interface PluginSettings {
   PluginType getPluginType();
 
   /**
-   * The ILP Address for remote peer account this Plugin is connecting to...
-   */
-  InterledgerAddress getPeerAccountAddress();
-
-  /**
    * The ILP address of the ILP Node operating this plugin.
    */
-  InterledgerAddress getLocalNodeAddress();
+  InterledgerAddress getOperatorAddress();
+
+  /**
+   * The ILP Address for the Account this Plugin is operating upon.
+   */
+  InterledgerAddress getAccountAddress();
 
   /**
    * Additional, custom settings that any plugin can define.

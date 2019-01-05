@@ -28,8 +28,8 @@ public class BtpSocketHandler { //extends BinaryWebSocketHandler implements Plug
 //  // getting connected to the right plugin only after the BTP Auth subprotocol has completed successfully.
 //  //
 //  // Key: auth_username that this plugin requires.
-//  // Value: The actual ServerWebsocketBtpPlugin
-//  private Map<String, ServerWebsocketBtpPlugin> registeredServerPlugins;
+//  // Value: The actual BtpServerPlugin
+//  private Map<String, BtpServerPlugin> registeredServerPlugins;
 //  // Once the Auth SubProtocol completes, an Account address for a plugin will be added to this set to indicate that this
 //  // plugin is currently authenticated.
 //  private Set<InterledgerAddress> authenticatedPluginAccounts;
@@ -115,18 +115,18 @@ public class BtpSocketHandler { //extends BinaryWebSocketHandler implements Plug
 //
 //  // Moved!
 //  /**
-//   * <p>Register a {@link ServerWebsocketBtpPlugin} with this class. The BTP Auth SubProtocol will, if successfully
+//   * <p>Register a {@link BtpServerPlugin} with this class. The BTP Auth SubProtocol will, if successfully
 //   * completed, associate a WebSocketSession to a registered plugin using the {@code authUserName} as a correlation
 //   * key.</p>
 //   *
 //   * @param authUserName           A {@link String} that uniquely identifies the principal of a BTP session. This value
 //   *                               is expected to be passed into the server via the `auth_username` using the BTP Auth
 //   *                               SubProtocol.
-//   * @param authenticatedBtpPlugin A {@link ServerWebsocketBtpPlugin} that should correlate to a particular BTP
+//   * @param authenticatedBtpPlugin A {@link BtpServerPlugin} that should correlate to a particular BTP
 //   *                               Session.
 //   */
 //  public void registerPlugin(
-//      final String authUserName, final ServerWebsocketBtpPlugin authenticatedBtpPlugin
+//      final String authUserName, final BtpServerPlugin authenticatedBtpPlugin
 //  ) {
 //    Objects.requireNonNull(authUserName);
 //    Objects.requireNonNull(authenticatedBtpPlugin);
@@ -180,16 +180,16 @@ public class BtpSocketHandler { //extends BinaryWebSocketHandler implements Plug
 //  @Override
 //  public void onConnect(PluginConnectedEvent event) {
 //    // If a plugin connects, it means that auth succeeded, so move that plugin into the authenticated Map.
-//    this.authenticatedPluginAccounts.add(event.getPlugin().getPluginSettings().getPeerAccountAddress());
+//    this.authenticatedPluginAccounts.add(event.getConnectedPlugin().getPluginSettings().getAccountAddress());
 //  }
 //
 //  @Override
 //  public void onDisconnect(PluginDisconnectedEvent event) {
-//    this.authenticatedPluginAccounts.remove(event.getPlugin().getPluginSettings().getPeerAccountAddress());
+//    this.authenticatedPluginAccounts.remove(event.getConnectedPlugin().getPluginSettings().getAccountAddress());
 //  }
 //
 //  @Override
 //  public void onError(PluginErrorEvent event) {
-//    this.authenticatedPluginAccounts.remove(event.getPlugin().getPluginSettings().getPeerAccountAddress());
+//    this.authenticatedPluginAccounts.remove(event.getConnectedPlugin().getPluginSettings().getAccountAddress());
 //  }
 }

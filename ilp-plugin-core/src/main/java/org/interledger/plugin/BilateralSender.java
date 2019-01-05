@@ -1,14 +1,14 @@
 package org.interledger.plugin;
 
-import org.interledger.core.InterledgerFulfillPacket;
+import org.interledger.core.InterledgerAddress;
+import org.interledger.core.InterledgerCondition;
 import org.interledger.core.InterledgerPreparePacket;
-import org.interledger.core.InterledgerRejectPacket;
 import org.interledger.core.InterledgerResponsePacket;
-import org.interledger.core.InterledgerResponsePacketHandler;
-import org.interledger.core.InterledgerResponsePacketMapper;
-import org.interledger.plugin.BilateralReceiver.DataHandler;
 
 import java.math.BigInteger;
+import java.time.Instant;
+import java.util.Base64;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -34,88 +34,58 @@ import java.util.concurrent.CompletableFuture;
  * @see "https://github.com/interledger/rfcs/blob/master/0001-interledger-architecture/"
  * @see "https://github.com/interledger/rfcs/blob/master/0023-bilateral-transfer-protocol/"
  */
+@Deprecated
 public interface BilateralSender extends Connectable {
 
-  Optional<DataSender> getDataSender();
+//  InterledgerCondition PING_PROTOCOL_CONDITION =
+//      InterledgerCondition.of(Base64.getDecoder().decode("Zmh6rfhivXdsj8GLjp+OIAiXFIVu4jOzkCpZHQ1fKSU="));
 
-  /**
-   * Accessor for the currently registered (though optionally-present) {@link DataHandler}. Throws a {@link
-   * RuntimeException} if no handler is registered, because callers should not be trying to access the handler if none
-   * is registered (in other words, a Plugin is not in a valid state until it has handlers registered)
-   *
-   * @return The currently registered {@link DataHandler}.
-   */
-  default DataSender safeGetDataSender() {
-    return this.getDataSender()
-        .orElseThrow(() -> new RuntimeException("You MUST register a DataSender before accessing it!"));
-  }
+//  Optional<DataSender> getDataSender();
+//
+//  /**
+//   * Accessor for the currently registered (though optionally-present) {@link DataHandler}. Throws a {@link
+//   * RuntimeException} if no handler is registered, because callers should not be trying to access the handler if none
+//   * is registered (in other words, a Plugin is not in a valid state until it has handlers registered)
+//   *
+//   * @return The currently registered {@link DataHandler}.
+//   */
+//  default DataSender safeGetDataSender() {
+//    return this.getDataSender()
+//        .orElseThrow(() -> new RuntimeException("You MUST register a DataSender before accessing it!"));
+//  }
+//
+//  Optional<MoneySender> getMoneySender();
+//
+//  /**
+//   * Accessor for the currently registered (though optionally-present) {@link MoneySender}. Throws a {@link
+//   * RuntimeException} if no handler is registered, because callers should not be trying to access the handler if none
+//   * is registered (in other words, a Plugin is not in a valid state until it has handlers registered)
+//   *
+//   * @return The currently registered {@link DataHandler}.
+//   */
+//  default MoneySender safeGetMoneySender() {
+//    return this.getMoneySender()
+//        .orElseThrow(() -> new RuntimeException("You MUST register a MoneySender before accessing it!"));
+//  }
+//
+//  /**
+//   * Send a 0-value payment to the destination and expect an ILP fulfillment, which demonstrates this sender has
+//   * send-data connectivity to the indicated destination address.
+//   *
+//   * @param destinationAddress
+//   */
+//  default CompletableFuture<Optional<InterledgerResponsePacket>> ping(final InterledgerAddress destinationAddress) {
+//    Objects.requireNonNull(destinationAddress);
+//
+//    final InterledgerPreparePacket pingPacket = InterledgerPreparePacket.builder()
+//        .executionCondition(PING_PROTOCOL_CONDITION)
+//        // TODO: Make this timeout configurable!
+//        .expiresAt(Instant.now().plusSeconds(30))
+//        .amount(BigInteger.ZERO)
+//        .destination(destinationAddress)
+//        .build();
+//
+//    return this.safeGetDataSender().sendData(pingPacket);
+//  }
 
-  Optional<MoneySender> getMoneySender();
-
-  /**
-   * Accessor for the currently registered (though optionally-present) {@link MoneySender}. Throws a {@link
-   * RuntimeException} if no handler is registered, because callers should not be trying to access the handler if none
-   * is registered (in other words, a Plugin is not in a valid state until it has handlers registered)
-   *
-   * @return The currently registered {@link DataHandler}.
-   */
-  default MoneySender safeGetMoneySender() {
-    return this.getMoneySender()
-        .orElseThrow(() -> new RuntimeException("You MUST register a MoneySender before accessing it!"));
-  }
-
-  /**
-   * Defines how to send data to the other side of a bilateral connection (i.e., the other party * operating a single
-   * account in tandem with the operator of this sender).
-   */
-  @FunctionalInterface
-  interface DataSender {
-
-    /**
-     * <p>Sends an ILPv4 request packet to a connected peer and returns the response packet (if one is returned).</p>
-     *
-     * <p>This method supports one of three responses, which can be handled by using utility classes such as {@link
-     * InterledgerResponsePacketMapper} or {@link InterledgerResponsePacketHandler}:
-     * </p>
-     *
-     * <pre>
-     * <ol>
-     *   <ul>An instance of {@link InterledgerFulfillPacket}, which means the packet was fulfilled by the receiver.</ul>
-     *   <ul>An instance of {@link InterledgerRejectPacket}, which means the packet was rejected by one of the nodes in
-     *   the payment path.
-     *   </ul>
-     *   <ul>An instance of {@link Optional#empty()}, which means the request expired before a response was received.
-     *   Note that this type of response does _not_ mean the request wasn't fulfilled or rejected. Instead, it simply
-     *   means a response was not received in-time from the remote peer. Because of this, senders should not assume what
-     *   actually happened on the org.interledger.bilateral receivers side of this link request.</ul>
-     * </ol>
-     * </pre>
-     *
-     * @param preparePacket An {@link InterledgerPreparePacket} to send to the remote peer.
-     *
-     * @return A {@link CompletableFuture} that resolves to an optionally-present {@link InterledgerResponsePacket},
-     *     which will be of concrete type {@link InterledgerFulfillPacket} or {@link InterledgerRejectPacket}, if
-     *     present.
-     */
-    CompletableFuture<Optional<InterledgerResponsePacket>> sendData(InterledgerPreparePacket preparePacket);
-
-  }
-
-  /**
-   * Defines how to send money to (i.e., settle with) the other side of a bilateral connection (i.e., the other party
-   * operating a single account in tandem with the operator of this sender).
-   */
-  @FunctionalInterface
-  interface MoneySender {
-
-    /**
-     * Settle an outstanding ILP balance with a counterparty by transferring {@code amount} units of value from this ILP
-     * node to the counterparty of the account used by this plugin (this method correlates to <tt>sendMoney</tt> in the
-     * Javascript Connector).
-     *
-     * @param amount The amount of "money" to transfer.
-     */
-    CompletableFuture<Void> sendMoney(BigInteger amount);
-
-  }
 }

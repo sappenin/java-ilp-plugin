@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+option java_multiple_files = false;
+option java_package = "org.interledger.bpp.grpc";
+option java_outer_classname = "BppProto";
+option objc_class_prefix = "BPP";
+
+package interledger;
+
+import public "google/protobuf/empty.proto";
+
+// BPP: Bilateral Push Protocol is a synchronous RPC service (i.e., non-streaming) that allows nodes to send and receive
+// bilateral messages, possibly relating to multiple accounts, using the same gRPC transport. In this setup, each node
+// operates a single gRPC client and a single gRPC server. Incoming requests come in from the remote on the gRPC server,
+// and responses are returned on this server transport path. Outgoing requests go out to the remote using the gRPC client,
+// with those repsonses being returned back on the same gRPC client.
+
+// Note that any custom information for these requests must be supplied in meta-data using gRPC headers, since there is
+// no direct support for sub-protocols in BPP.
+service Bpp {
+
+    rpc TestConnection (google.protobuf.Empty) returns (google.protobuf.Empty) {
+    }
+
+    // Send an ILP Prepare packet.
+    rpc Send (BppPrepare) returns (BppResponse) {
+    }
+}
+
+// An envelope for an Interledger Prepare Packet.
+message BppPrepare {
+    string accountAddress = 1; // The Account this packet should be attached to.
+    bytes preparePacketBytes = 2;
+}
+
+// An envelope for an Interledger Packet (fulfill, or reject).
+message BppResponse {
+    string accountAddress = 1; // The Account this packet should be attached to.
+    bytes responsePacketBytes = 2;
+}

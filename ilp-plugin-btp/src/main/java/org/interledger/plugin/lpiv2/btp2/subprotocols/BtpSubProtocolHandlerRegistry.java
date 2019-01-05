@@ -120,11 +120,11 @@ public class BtpSubProtocolHandlerRegistry {
     }
   }
 
-//  /**
-//   * Determines the type of BTP Auth subprotocol handler to utilze when creating the registry.
-//   */
-//  public enum RegistryProfile {
-//    CLIENT, // BTP is being performed by a BTP client, so utilize that subprotocol handler.
-//    SERVER // BTP is being performed by a BTP server, so utilize that subprotocol handler.
-//  }
+  public IlpBtpSubprotocolHandler getIlpSubProtocolHandler() {
+    return this.getHandler(BTP_SUB_PROTOCOL_ILP, ContentType.MIME_APPLICATION_OCTET_STREAM)
+        .map($ -> (IlpBtpSubprotocolHandler) $)
+        .orElseThrow(() -> new RuntimeException(
+            "No BTP Subprotocol handler registered for Interledger using key `" + BTP_SUB_PROTOCOL_ILP + "`!"))
+        ;
+  }
 }

@@ -13,8 +13,8 @@
 
   <name>ILP Plugin Connections</name>
   <description>
-    Defines a Connection primitive that defines how bilateral peers can connect to each other, possibly
-    operating one or many plugins over a single Connection.
+    Connection primitives that define how bilateral peers can connect to each other, possibly
+    operating one or more plugins over a single Connection.
   </description>
 
   <dependencies>

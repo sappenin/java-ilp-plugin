@@ -1,14 +1,14 @@
 package org.interledger.plugin.lpiv2;
 
+import org.interledger.plugin.DataHandler;
+import org.interledger.plugin.MoneyHandler;
 import org.interledger.plugin.lpiv2.events.PluginConnectedEvent;
 import org.interledger.plugin.lpiv2.events.PluginDisconnectedEvent;
 import org.interledger.plugin.lpiv2.events.PluginErrorEvent;
 import org.interledger.plugin.lpiv2.events.PluginEventEmitter;
 import org.interledger.plugin.lpiv2.events.PluginEventListener;
 import org.interledger.plugin.lpiv2.exceptions.DataHandlerAlreadyRegisteredException;
-import org.interledger.plugin.lpiv2.exceptions.DataSenderAlreadyRegisteredException;
 import org.interledger.plugin.lpiv2.exceptions.MoneyHandlerAlreadyRegisteredException;
-import org.interledger.plugin.lpiv2.exceptions.MoneySenderAlreadyRegisteredException;
 
 import com.google.common.collect.Maps;
 import org.slf4j.Logger;
@@ -19,6 +19,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -36,18 +38,13 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
 
   private final AtomicBoolean connected = new AtomicBoolean(NOT_CONNECTED);
 
+  private final ExecutorService executorService;
+
   // The emitter used by this plugin.
-  private PluginEventEmitter pluginEventEmitter;
+  private final PluginEventEmitter pluginEventEmitter;
 
-  private AtomicReference<DataSender> dataSenderAtomicReference = new AtomicReference<>();
-
-  // TODO: Use a no-op MoneyHandler by default, and remove checks in connect/disconnect.
-  private AtomicReference<MoneySender> moneySenderAtomicReference = new AtomicReference<>();
-
-  private AtomicReference<DataHandler> dataHandlerAtomicReference = new AtomicReference<>();
-
-  // TODO: Use a no-op MoneyHandler by default, and remove checks in connect/disconnect.
-  private AtomicReference<MoneyHandler> moneyHandlerAtomicReference = new AtomicReference<>();
+  private final AtomicReference<DataHandler> dataHandlerAtomicReference = new AtomicReference<>();
+  private final AtomicReference<MoneyHandler> moneyHandlerAtomicReference = new AtomicReference<>();
 
   /**
    * Required-args Constructor which utilizes a default {@link PluginEventEmitter} that synchronously connects to any
@@ -56,7 +53,7 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
    * @param pluginSettings A {@link T} that specified ledger plugin options.
    */
   protected AbstractPlugin(final T pluginSettings) {
-    this(pluginSettings, new SyncPluginEventEmitter());
+    this(pluginSettings, Executors.newCachedThreadPool(), new SyncPluginEventEmitter());
   }
 
   /**
@@ -64,10 +61,14 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
    *
    * @param pluginSettings     A {@link T} that specified ledger plugin options.
    * @param pluginEventEmitter A {@link PluginEventEmitter} that is used to emit events from this plugin.
+   * @param executorService
    */
-  protected AbstractPlugin(final T pluginSettings, final PluginEventEmitter pluginEventEmitter) {
+  protected AbstractPlugin(
+      final T pluginSettings, final ExecutorService executorService, final PluginEventEmitter pluginEventEmitter
+  ) {
     this.pluginSettings = Objects.requireNonNull(pluginSettings);
     this.pluginEventEmitter = Objects.requireNonNull(pluginEventEmitter);
+    this.executorService = Objects.requireNonNull(executorService);
   }
 
   @Override
@@ -75,7 +76,7 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
     try {
       if (this.connected.compareAndSet(NOT_CONNECTED, CONNECTED)) {
         logger.debug("[{}] `{}` connecting to `{}`...", this.pluginSettings.getPluginType(),
-            this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
+            this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress());
 
         return this.doConnect()
             .whenComplete(($, error) -> {
@@ -84,18 +85,18 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
                 this.pluginEventEmitter.emitEvent(PluginConnectedEvent.of(this));
 
                 logger.debug("[{}] `{}` connected to `{}`", this.getPluginSettings().getPluginType(),
-                    this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
+                    this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress());
               } else {
                 final String errorMessage = String.format("[%s] `%s` error while trying to connect to `%s`",
                     this.pluginSettings.getPluginType(),
-                    this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress()
+                    this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress()
                 );
                 logger.error(errorMessage, error);
               }
             });
       } else {
         logger.debug("[{}] `{}` already connected to `{}`...", this.pluginSettings.getPluginType(),
-            this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
+            this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress());
         // No-op: We're already expectedCurrentState...
         return CompletableFuture.completedFuture(null);
       }
@@ -125,7 +126,7 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
     try {
       if (this.connected.compareAndSet(CONNECTED, NOT_CONNECTED)) {
         logger.debug("[{}] `{}` disconnecting from `{}`...", this.pluginSettings.getPluginType(),
-            this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
+            this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress());
 
         return this.doDisconnect()
             .whenComplete(($, error) -> {
@@ -134,22 +135,22 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
                 this.pluginEventEmitter.emitEvent(PluginDisconnectedEvent.of(this));
 
                 logger.debug("[{}] `{}` disconnected from `{}`.", this.pluginSettings.getPluginType(),
-                    this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
+                    this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress());
               } else {
                 final String errorMessage = String.format("[%s] `%s` error while trying to disconnect from `%s`",
                     this.pluginSettings.getPluginType(),
-                    this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress()
+                    this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress()
                 );
                 logger.error(errorMessage, error);
               }
             })
             .thenAccept(($) -> {
               logger.debug("[{}] `{}` disconnected from `{}`...", this.pluginSettings.getPluginType(),
-                  this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
+                  this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress());
             });
       } else {
         logger.debug("[{}] `{}` already disconnected from `{}`...", this.pluginSettings.getPluginType(),
-            this.pluginSettings.getLocalNodeAddress(), this.getPluginSettings().getPeerAccountAddress());
+            this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress());
         // No-op: We're already expectedCurrentState...
         return CompletableFuture.completedFuture(null);
       }
@@ -190,42 +191,20 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
   }
 
   @Override
-  public void registerDataSender(final DataSender dataSender)
-      throws DataHandlerAlreadyRegisteredException {
-    Objects.requireNonNull(dataSender, "dataSender must not be null!");
-    if (!this.dataSenderAtomicReference.compareAndSet(null, dataSender)) {
-      throw new DataSenderAlreadyRegisteredException(
-          "DataSender may not be registered twice. Call unregisterDataSender first!",
-          this.getPluginSettings().getLocalNodeAddress()
-      );
-    }
-  }
-
-  @Override
-  public Optional<DataSender> getDataSender() {
-    return Optional.ofNullable(this.dataSenderAtomicReference.get());
-  }
-
-  @Override
-  public void unregisterDataSender() {
-    this.dataSenderAtomicReference.set(null);
-  }
-
-  @Override
   public void registerDataHandler(final DataHandler ilpDataHandler)
       throws DataHandlerAlreadyRegisteredException {
     Objects.requireNonNull(ilpDataHandler, "ilpDataHandler must not be null!");
     if (!this.dataHandlerAtomicReference.compareAndSet(null, ilpDataHandler)) {
       throw new DataHandlerAlreadyRegisteredException(
           "DataHandler may not be registered twice. Call unregisterDataHandler first!",
-          this.getPluginSettings().getLocalNodeAddress()
+          this.getPluginSettings().getOperatorAddress()
       );
     }
   }
 
   @Override
   public Optional<DataHandler> getDataHandler() {
-    return Optional.ofNullable(this.dataHandlerAtomicReference.get());
+    return Optional.ofNullable(dataHandlerAtomicReference.get());
   }
 
   @Override
@@ -245,7 +224,7 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
     if (!this.moneyHandlerAtomicReference.compareAndSet(null, moneyHandler)) {
       throw new MoneyHandlerAlreadyRegisteredException(
           "MoneyHandler may not be registered twice. Call unregisterMoneyHandler first!",
-          this.getPluginSettings().getLocalNodeAddress()
+          this.getPluginSettings().getOperatorAddress()
       );
     }
   }
@@ -253,28 +232,6 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
   @Override
   public void unregisterMoneyHandler() {
     this.moneyHandlerAtomicReference.set(null);
-  }
-
-  @Override
-  public Optional<MoneySender> getMoneySender() {
-    return Optional.ofNullable(moneySenderAtomicReference.get());
-  }
-
-  @Override
-  public void registerMoneySender(final MoneySender moneySender)
-      throws MoneySenderAlreadyRegisteredException {
-    Objects.requireNonNull(moneySender, "moneySender must not be null!");
-    if (!this.moneySenderAtomicReference.compareAndSet(null, moneySender)) {
-      throw new MoneyHandlerAlreadyRegisteredException(
-          "MoneySender may not be registered twice. Call unregisterMoneySender first!",
-          this.getPluginSettings().getLocalNodeAddress()
-      );
-    }
-  }
-
-  @Override
-  public void unregisterMoneySender() {
-    this.moneySenderAtomicReference.set(null);
   }
 
   /**

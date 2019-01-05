@@ -1,14 +1,15 @@
 package org.interledger.plugin.connections;
 
 import org.interledger.core.InterledgerAddress;
-import org.interledger.plugin.connections.mux.BilateralReceiverMux;
-import org.interledger.plugin.connections.mux.BilateralSenderMux;
-
-import java.io.Closeable;
-import java.util.concurrent.CompletableFuture;
+import org.interledger.plugin.Connectable;
+import org.interledger.plugin.connections.settings.BilateralConnectionSettings;
+import org.interledger.plugin.lpiv2.Plugin;
 
 /**
- * <p>A Bilateral Connection is a network connection between two ILP nodes, allowing multiple Plugins to multiplex
+ * <p>A relationship between two bilateral peers that supports one or more Account relationships over a single
+ * network connection.</p>
+ *
+ * <p>Sometimes, these account relationships are multiplexed, and in other scenarios there is only a single account
  * over a single connection.</p>
  *
  * <p>In a multiplexed scenario, traffic will flow bidirectionally over the following components:</p>
@@ -18,9 +19,9 @@ import java.util.concurrent.CompletableFuture;
  * │ Client  │                │       │                                │       │                │   Bob   │
  * │Plugin 1 │◁ ─Account 1─ ─▷│       │                                │       │◁─ ─Account 1─ ▷│Plugin 1 │
  * │         │                │       ├───────────┐        ┌───────────┤       │                │         │
- * └─────────┘                │Client │           │        │           │Client │                └─────────┘
- *                            │Plugin │ WebSocket │        │ WebSocket │Plugin │
- * ┌─────────┐                │ Conn  │  Client   │◁─HTTP─▷│  Server   │  Conn │                ┌─────────┐
+ * └─────────┘                │Client │           │        │           │Server │                └─────────┘
+ *                            │ Conn  │ WebSocket │        │ WebSocket │ Conn  │
+ * ┌─────────┐                │       │  Client   │◁─HTTP─▷│  Server   │       │                ┌─────────┐
  * │         │                │       │           │        │           │       │                │         │
  * │ Client  │                │       ├───────────┘        └───────────┤       │                │ Client  │
  * │Plugin 2 │◁ ─Account 2─ ─▷│       │                                │       │◁─ ─Account 2─ ▷│Plugin 2 │
@@ -32,15 +33,17 @@ import java.util.concurrent.CompletableFuture;
  * <p>While the above illustrates a potential server-to-server configuration, the following diagram represents a more
  * typical client-server configuration:</p>
  *
+ * // TODO: Fix the diagram below to always show a Connection.
+ *
  * <pre>
  *                                                                     ┌───────┐                ┌─────────┐
  *                                                                     │       │                │         │
  *                                                                     │       │                │Plugin 1 │
  *                                                                     │       │◁─ ─Account 1─ ▷│         │
  * ┌─────────┐                        ┌───────────┐        ┌───────────┤       │                │         │
- * │         │                        │           │        │           │Client │                └─────────┘
- * │ Client  │                        │ WebSocket │        │ WebSocket │Plugin │
- * │Plugin 1 │◁ ─ ─ ─Account 1─ ─ ─ ─▷│  Client   │◁─HTTP─▷│  Server   │ Conn  │                ┌─────────┐
+ * │         │                        │           │        │           │Server │                └─────────┘
+ * │ Client  │                        │ WebSocket │        │ WebSocket │ Conn  │
+ * │Plugin 1 │◁ ─ ─ ─Account 1─ ─ ─ ─▷│  Client   │◁─HTTP─▷│  Server   │       │                ┌─────────┐
  * │         │                        │           │        │           │       │                │         │
  * └─────────┘                        └───────────┘        └───────────┤       │                │Plugin N │
  *                                                                     │       │◁─ ─Account N─ ▷│         │
@@ -68,86 +71,70 @@ import java.util.concurrent.CompletableFuture;
  * <p>To reiterate, a Connector bridges two accounts, but multiple accounts can communicate over a single
  * connection.</p>
  *
- * @param <RM> A {@link BilateralReceiverMux} that is capable of de-multiplexing incoming packets.
- * @param <SM> A {@link BilateralSenderMux} that is capable of multiplexing outgoing packets.
+ * @param <CS> A {@link BilateralConnectionSettings} that defines all connection-level settings.
  *
  * @see "https://github.com/interledger/rfcs/tree/master/0023-bilateral-transfer-protocol"
+ * @deprecated No longer used.
  */
-public interface BilateralConnection<SM extends BilateralSenderMux, RM extends BilateralReceiverMux> extends
-    //BilateralReceiverMuxEventListener, BilateralSenderMuxEventListener,
-    Closeable {
+@Deprecated
+public interface BilateralConnection<CS extends BilateralConnectionSettings> extends Connectable {
+  //SM extends BilateralSenderMux, RM extends BilateralReceiverMux> extends Closeable {
+
+//  /**
+//   * Accessor for this connection's settings.
+//   *
+//   * @return An instance of {@link CS}.
+//   */
+//  CS getConnectionSettings();
+//
+//  //PluginFactory getPluginFactory();
+//
+//  /**
+//   * Obtain the {@link Plugin} for the specified {@code accountAddress}.
+//   *
+//   * @param accountAddress The {@link InterledgerAddress} of the account to retrieve a plugin for.
+//   *
+//   * @return An instance of {@link Plugin}.
+//   */
+//  Plugin<?> getPlugin(InterledgerAddress accountAddress);
+
+//  /**
+//   * Accessor for the bilateral-sender associated with the indicated {@code sourceAccountAddress}.
+//   *
+//   * @param sourceAccountAddress The {@link InterledgerAddress} of the account this call is operating on behalf of
+//   *                             (i.e., the account address of the plugin that emitted this call).
+//   *
+//   * @return An optionally-present {@link BilateralSender}.
+//   */
+//  Optional<BilateralSender> getBilateralSender(InterledgerAddress sourceAccountAddress);
+//
+//  /**
+//   * Accessor for the bilateral-sender associated with the indicated {@code sourceAccountAddress}.
+//   *
+//   * @param sourceAccountAddress The {@link InterledgerAddress} of the account this call is operating on behalf of
+//   *                             (i.e., the account address of the plugin that emitted this call).
+//   *
+//   * @return An optionally-present {@link BilateralReceiver}.
+//   */
+//  Optional<BilateralReceiver> getBilateralReceiver(InterledgerAddress sourceAccountAddress);
 
   /**
-   * Accessor for the {@link InterledgerAddress} of the operator of this mux.
+   * Accessor for the plugin supporting the specified {@code accountAddress}.
    *
-   * @return An instance of {@link InterledgerAddress}.
+   * @param accountAddress The ILP address of the account to obtain a plugin for.
+   *
+   * @return An instance of {@link Plugin}.
    */
-  InterledgerAddress getOperatorAddress();
+  //Plugin<?> getConnectedPlugin(InterledgerAddress accountAddress);
 
-//  /**
-//   * The {@link InterledgerAddress} of the remote node that this bilateral connection is connecting to.
-//   *
-//   * @return An instance of {@link InterledgerAddress}.
-//   */
-//  InterledgerAddress getRemoteAddress();
+  // TODO: Consider a provide mechanism?
+  //AccountProvider getAccountProvider(InterledgerAddress accountAddress);
+  // AccountProvider maybe has access to the plugin?
 
-  // TODO: Javadoc.
-  SM getBilateralSenderMux();
-
-  RM getBilateralReceiverMux();
-
-//  /**
-//   * Add a bilateral connection event listener to this connection..
-//   *
-//   * Care should be taken when adding multiple handlers to ensure that they perform distinct operations, otherwise
-//   * duplicate functionality might be unintentionally introduced.
-//   *
-//   * @param eventListenerId A {@link UUID} that uniquely identifies the listener to be added.
-//   * @param eventListener   A {@link BilateralConnectionEventListener} that can handle various types of events emitted
-//   *                        by this bilateral connection.
-//   *
-//   * @return A {@link UUID} representing the unique identifier of the listener, as seen by this connection.
-//   */
-//  void addConnectionEventListener(UUID eventListenerId, BilateralConnectionEventListener eventListener);
+//    // Provides account-level
+//    SM getBilateralSenderMux();
 //
-//  /**
-//   * Removes the event listener from the collection of listeners registered with this connection.
-//   *
-//   * @param eventListenerId A {@link UUID} representing the unique identifier of the listener to remove.
-//   */
-//  void removeConnectionEventListener(UUID eventListenerId);
+//    // TODO: Javadoc.
+//    RM getBilateralReceiverMux();
 
-//  /**
-//   * The role that the connection is playing with regard to the remote.
-//   */
-//  enum ConnectionRole {
-//    /**
-//     * This connection is a client connecting to a single remote server.
-//     */
-//    CLIENT,
-//
-//    /**
-//     * This connection is a server, allowing many incoming mux from potentially distinct remote clients.
-//     */
-//    SERVER
-//  }
-
-  /**
-   * <p>Connect to the remote peer.</p>
-   */
-  default CompletableFuture<Void> connect() {
-    return this.getBilateralSenderMux().connect().thenCompose(($) -> getBilateralReceiverMux().connect());
-  }
-
-  /**
-   * Disconnect from the remote peer.
-   */
-  default CompletableFuture<Void> disconnect() {
-    return this.getBilateralSenderMux().disconnect().thenCompose(($) -> getBilateralReceiverMux().disconnect());
-  }
-
-  @Override
-  default void close() {
-    disconnect().join();
-  }
 }

@@ -81,7 +81,6 @@ public class LoopbackPluginTest {
         .build();
 
     final Optional<InterledgerResponsePacket> responsePacket = this.loopbackPlugin
-        .safeGetDataSender()
         .sendData(preparePacket)
         .join();
 
@@ -108,7 +107,7 @@ public class LoopbackPluginTest {
 
   @Test
   public void testSendMoney() throws ExecutionException, InterruptedException {
-    this.loopbackPlugin.safeGetMoneySender().sendMoney(BigInteger.ZERO).get();
+    this.loopbackPlugin.sendMoney(BigInteger.ZERO).get();
   }
 
   ////////////////////

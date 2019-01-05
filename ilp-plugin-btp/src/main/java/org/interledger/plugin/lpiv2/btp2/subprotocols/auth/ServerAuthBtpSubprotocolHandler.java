@@ -93,26 +93,18 @@ public class ServerAuthBtpSubprotocolHandler extends AuthBtpSubprotocolHandler {
                 String.format("Expected BTP SubProtocol with Id: %s", BTP_SUB_PROTOCOL_AUTH_TOKEN))
         );
 
-    final InterledgerAddress accountAddress = auth_username
-        // Assume multi-accounts.
-        .map(username -> btpMultiAuthenticator.usernameToIlpAddress(username))
-        // Assume single-accounts.
-        .orElseGet(() -> btpSingleAuthenticator.getAccountAddress());
-
     final BtpAuthenticator btpAuthenticator = auth_username
-        .map(username -> btpMultiAuthenticator.getBtpAuthenticator(accountAddress)
-            .orElseThrow(() -> new RuntimeException(
-                String.format("No BTP Authenticator for AccountAddress: %s", accountAddress))
-            ))
+        .map($ -> btpMultiAuthenticator.getBtpAuthenticator($)
+            .orElseThrow(() -> new BtpAuthenticationException("Invalid BTP Auth Credentials for " + auth_username))
+        )
         .orElse(btpSingleAuthenticator);
 
     // TODO: Put all of this into the CF.
-
     final boolean authenticated = btpAuthenticator.isValidAuthToken(auth_token);
     if (authenticated) {
       // SUCCESS! Respond with an empty Ack message...
       return CompletableFuture.supplyAsync(() -> {
-        this.storeAuthInBtpSession(btpSession, accountAddress, auth_token, auth_username);
+        this.storeAuthInBtpSession(btpSession, btpAuthenticator.getAccountAddress(), auth_token, auth_username);
         return Optional.of(ServerAuthBtpSubprotocolHandler.authResponse());
       });
     } else {
@@ -134,7 +126,7 @@ public class ServerAuthBtpSubprotocolHandler extends AuthBtpSubprotocolHandler {
     Objects.requireNonNull(btpSession);
     Objects.requireNonNull(incomingBtpTransfer);
 
-    logger.debug("Incoming Auth Subprotocol BtpTransfer: {}", incomingBtpTransfer);
+    logger.error("BTP Auth Handler encountered incoming BtpTransfer but should not have: {}", incomingBtpTransfer);
     return CompletableFuture.completedFuture(Optional.empty());
   }
 
