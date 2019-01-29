@@ -40,22 +40,22 @@ public class LoopbackPluginTest {
   public static final byte[] PREIMAGE = "Roads? Where we're going we dont".getBytes();
 
   private InterledgerAddress nodeAddress;
-  private InterledgerAddress accountAddress;
+  private PluginId pluginId;
 
   private LoopbackPlugin loopbackPlugin;
 
-  public LoopbackPluginTest(final InterledgerAddress nodeAddress, final InterledgerAddress accountAddress) {
+  public LoopbackPluginTest(final InterledgerAddress nodeAddress, final PluginId pluginId) {
     this.nodeAddress = Objects.requireNonNull(nodeAddress);
-    this.accountAddress = Objects.requireNonNull(accountAddress);
+    this.pluginId = Objects.requireNonNull(pluginId);
   }
 
   @Parameters
   public static Collection<Object[]> data() {
     return Arrays.asList(new Object[][] {
-        {InterledgerAddress.of("test.node1"), InterledgerAddress.of("test.usd.destination")},
-        {InterledgerAddress.of("test.node1"), InterledgerAddress.of("test.eur.destination")},
-        {InterledgerAddress.of("test.node1"), InterledgerAddress.of("test.mxn.destination")},
-        {InterledgerAddress.of("test.node1"), InterledgerAddress.of("test.btc.destination")},
+        {InterledgerAddress.of("test.node1"), PluginId.of("destination")},
+        {InterledgerAddress.of("test.node1"), PluginId.of("destination")},
+        {InterledgerAddress.of("test.node1"), PluginId.of("destination")},
+        {InterledgerAddress.of("test.node1"), PluginId.of("destination")},
     });
   }
 
@@ -67,7 +67,8 @@ public class LoopbackPluginTest {
     ((ch.qos.logback.classic.Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME))
         .setLevel(Level.DEBUG);
 
-    this.loopbackPlugin = new LoopbackPlugin(nodeAddress, accountAddress);
+    this.loopbackPlugin = new LoopbackPlugin(nodeAddress);
+    this.loopbackPlugin.setPluginId(pluginId);
   }
 
   @Test

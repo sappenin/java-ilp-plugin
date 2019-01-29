@@ -19,8 +19,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -35,16 +33,13 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
    * A typed representation of the configuration options passed-into this ledger plugin.
    */
   private final T pluginSettings;
-
   private final AtomicBoolean connected = new AtomicBoolean(NOT_CONNECTED);
-
-  private final ExecutorService executorService;
 
   // The emitter used by this plugin.
   private final PluginEventEmitter pluginEventEmitter;
-
   private final AtomicReference<DataHandler> dataHandlerAtomicReference = new AtomicReference<>();
   private final AtomicReference<MoneyHandler> moneyHandlerAtomicReference = new AtomicReference<>();
+  private PluginId pluginId;
 
   /**
    * Required-args Constructor which utilizes a default {@link PluginEventEmitter} that synchronously connects to any
@@ -53,7 +48,7 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
    * @param pluginSettings A {@link T} that specified ledger plugin options.
    */
   protected AbstractPlugin(final T pluginSettings) {
-    this(pluginSettings, Executors.newCachedThreadPool(), new SyncPluginEventEmitter());
+    this(pluginSettings, new SyncPluginEventEmitter());
   }
 
   /**
@@ -61,14 +56,27 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
    *
    * @param pluginSettings     A {@link T} that specified ledger plugin options.
    * @param pluginEventEmitter A {@link PluginEventEmitter} that is used to emit events from this plugin.
-   * @param executorService
    */
   protected AbstractPlugin(
-      final T pluginSettings, final ExecutorService executorService, final PluginEventEmitter pluginEventEmitter
+      final T pluginSettings, final PluginEventEmitter pluginEventEmitter
   ) {
     this.pluginSettings = Objects.requireNonNull(pluginSettings);
     this.pluginEventEmitter = Objects.requireNonNull(pluginEventEmitter);
-    this.executorService = Objects.requireNonNull(executorService);
+  }
+
+  @Override
+  public Optional<PluginId> getPluginId() {
+    return Optional.ofNullable(pluginId);
+  }
+
+  public void setPluginId(final PluginId pluginId) {
+    Objects.requireNonNull(pluginId);
+
+    if (this.pluginId == null) {
+      this.pluginId = pluginId;
+    } else {
+      throw new RuntimeException("PluginId may only be set once!");
+    }
   }
 
   @Override
@@ -76,7 +84,7 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
     try {
       if (this.connected.compareAndSet(NOT_CONNECTED, CONNECTED)) {
         logger.debug("[{}] `{}` connecting to `{}`...", this.pluginSettings.getPluginType(),
-            this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress());
+            this.pluginSettings.getOperatorAddress(), this.getPluginId());
 
         return this.doConnect()
             .whenComplete(($, error) -> {
@@ -85,18 +93,18 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
                 this.pluginEventEmitter.emitEvent(PluginConnectedEvent.of(this));
 
                 logger.debug("[{}] `{}` connected to `{}`", this.getPluginSettings().getPluginType(),
-                    this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress());
+                    this.pluginSettings.getOperatorAddress(), this.getPluginId());
               } else {
                 final String errorMessage = String.format("[%s] `%s` error while trying to connect to `%s`",
                     this.pluginSettings.getPluginType(),
-                    this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress()
+                    this.pluginSettings.getOperatorAddress(), this.getPluginId()
                 );
                 logger.error(errorMessage, error);
               }
             });
       } else {
         logger.debug("[{}] `{}` already connected to `{}`...", this.pluginSettings.getPluginType(),
-            this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress());
+            this.pluginSettings.getOperatorAddress(), this.getPluginId());
         // No-op: We're already expectedCurrentState...
         return CompletableFuture.completedFuture(null);
       }
@@ -126,7 +134,7 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
     try {
       if (this.connected.compareAndSet(CONNECTED, NOT_CONNECTED)) {
         logger.debug("[{}] `{}` disconnecting from `{}`...", this.pluginSettings.getPluginType(),
-            this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress());
+            this.pluginSettings.getOperatorAddress(), this.getPluginId());
 
         return this.doDisconnect()
             .whenComplete(($, error) -> {
@@ -135,22 +143,22 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
                 this.pluginEventEmitter.emitEvent(PluginDisconnectedEvent.of(this));
 
                 logger.debug("[{}] `{}` disconnected from `{}`.", this.pluginSettings.getPluginType(),
-                    this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress());
+                    this.pluginSettings.getOperatorAddress(), this.getPluginId());
               } else {
                 final String errorMessage = String.format("[%s] `%s` error while trying to disconnect from `%s`",
                     this.pluginSettings.getPluginType(),
-                    this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress()
+                    this.pluginSettings.getOperatorAddress(), this.getPluginId()
                 );
                 logger.error(errorMessage, error);
               }
             })
             .thenAccept(($) -> {
               logger.debug("[{}] `{}` disconnected from `{}`...", this.pluginSettings.getPluginType(),
-                  this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress());
+                  this.pluginSettings.getOperatorAddress(), this.getPluginId());
             });
       } else {
         logger.debug("[{}] `{}` already disconnected from `{}`...", this.pluginSettings.getPluginType(),
-            this.pluginSettings.getOperatorAddress(), this.getPluginSettings().getAccountAddress());
+            this.pluginSettings.getOperatorAddress(), this.getPluginId());
         // No-op: We're already expectedCurrentState...
         return CompletableFuture.completedFuture(null);
       }

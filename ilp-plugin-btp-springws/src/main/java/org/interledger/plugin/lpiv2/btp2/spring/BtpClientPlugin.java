@@ -3,11 +3,13 @@ package org.interledger.plugin.lpiv2.btp2.spring;
 import org.interledger.btp.BtpMessage;
 import org.interledger.btp.BtpPacket;
 import org.interledger.btp.BtpResponse;
+import org.interledger.btp.BtpResponsePacket;
 import org.interledger.btp.BtpSession;
 import org.interledger.encoding.asn.framework.CodecContext;
 import org.interledger.plugin.lpiv2.PluginType;
 import org.interledger.plugin.lpiv2.btp2.BtpReceiver;
 import org.interledger.plugin.lpiv2.btp2.BtpSender;
+import org.interledger.plugin.lpiv2.btp2.spring.PendingResponseManager.NoPendingResponseException;
 import org.interledger.plugin.lpiv2.btp2.spring.converters.BinaryMessageToBtpPacketConverter;
 import org.interledger.plugin.lpiv2.btp2.spring.converters.BtpConversionException;
 import org.interledger.plugin.lpiv2.btp2.spring.converters.BtpPacketToBinaryMessageConverter;
@@ -58,7 +60,8 @@ public class BtpClientPlugin extends AbstractBtpPlugin<BtpClientPluginSettings> 
         ilpCodecContext,
         binaryMessageToBtpPacketConverter,
         btpPacketToBinaryMessageConverter,
-        btpSubProtocolHandlerRegistry
+        btpSubProtocolHandlerRegistry,
+        new PendingResponseManager<>(BtpResponsePacket.class)
     );
 
     this.webSocketClient = Objects.requireNonNull(webSocketClient);
@@ -74,11 +77,7 @@ public class BtpClientPlugin extends AbstractBtpPlugin<BtpClientPluginSettings> 
                 @Override
                 public void afterConnectionEstablished(WebSocketSession session) {
                   // Initialize a new BTP Session...
-                  final BtpSession btpSession = new BtpSession(
-                      session.getId(),
-                      getPluginSettings().getAccountAddress(),
-                      getBtpSessionCredentials()
-                  );
+                  final BtpSession btpSession = new BtpSession(session.getId(), getBtpSessionCredentials());
                   BtpSessionUtils.setBtpSessionIntoWebsocketSession(session, btpSession);
                 }
 
@@ -106,7 +105,7 @@ public class BtpClientPlugin extends AbstractBtpPlugin<BtpClientPluginSettings> 
       // We wait 5 seconds for Auth Messages to succeed, and then fail.
       return this
           .sendMessageWithPendingRepsonse(
-              requestId, webSocketSession, binaryAuthMessage, Duration.of(5, ChronoUnit.SECONDS)
+              requestId, "BTP Auth", webSocketSession, binaryAuthMessage, Duration.of(5, ChronoUnit.SECONDS)
           )
           .handle((response, error) -> {
             if (error != null) {
@@ -183,14 +182,32 @@ public class BtpClientPlugin extends AbstractBtpPlugin<BtpClientPluginSettings> 
     // If we get a response from the server here, assume that Auth succeeded...
     final BtpSession btpSession = BtpSessionUtils.getBtpSessionFromWebSocketSession(webSocketSession)
         .orElseThrow(() -> new RuntimeException("BtpSession is required!"));
-    btpSession.setAuthenticated();
-    this.webSocketSession = Optional.ofNullable(webSocketSession);
 
     // There is a pendingResponse that is waiting to be fulfilled (this was the original auth call from the client).
-    this.getPendingResponseManager().joinPendingResponse(
-        incomingBtpPacket.getRequestId(),
-        BtpResponse.builder().requestId(incomingBtpPacket.getRequestId()).build()
-    );
+    // It has a Void return type, so there's nothing to to with it other than "join" it. However, if that join fails,
+    // then auth should fail.
+    try {
+
+      // TODO: only do this if auth succeeded.
+      this.getPendingResponseManager()
+          .joinPendingResponse(
+              incomingBtpPacket.getRequestId(),
+              BtpResponse.builder().requestId(incomingBtpPacket.getRequestId()).build()
+          )
+          .getJoinableResponseFuture()
+          .handle((result, error) -> {
+            if (error != null) {
+              logger.error("Unable to complete BtpClientAuth: {}", error);
+              return error;
+            } else {
+              this.webSocketSession = Optional.ofNullable(webSocketSession);
+              btpSession.setAuthenticated();
+              return result;
+            }
+          }).join();
+    } catch (NoPendingResponseException e) {
+      logger.error(e.getMessage(), e);
+    }
 
     return Optional.empty();
   }

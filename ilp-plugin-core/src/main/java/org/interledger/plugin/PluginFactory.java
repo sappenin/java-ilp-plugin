@@ -2,6 +2,7 @@ package org.interledger.plugin;
 
 import org.interledger.plugin.lpiv2.Plugin;
 import org.interledger.plugin.lpiv2.PluginSettings;
+import org.interledger.plugin.lpiv2.PluginType;
 
 /**
  * A factory for constructing instances of {@link Plugin} based upon configured settings.
@@ -14,6 +15,15 @@ public interface PluginFactory {
    * @return A newly constructed instance of {@link Plugin}.
    */
   Plugin<?> constructPlugin(PluginSettings pluginSettings);
+
+  /**
+   * Determines if this factory support a particular type of {@link PluginType}.
+   *
+   * @param pluginType A {@link PluginType} to check compatibility for.
+   *
+   * @return {@code true} if this factory supports the specified pluginType; {@code false} otherwise.
+   */
+  boolean supports(PluginType pluginType);
 
   /**
    * Construct a new instance of {@link Plugin} using the supplied inputs.

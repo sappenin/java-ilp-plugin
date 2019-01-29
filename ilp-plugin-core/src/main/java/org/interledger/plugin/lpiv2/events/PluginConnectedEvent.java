@@ -12,7 +12,7 @@ public interface PluginConnectedEvent extends PluginEvent {
   static PluginConnectedEvent of(final Plugin<?> plugin) {
     return ImmutablePluginConnectedEvent.builder().plugin(plugin).build();
   }
-
+  
   @Value.Immutable
   abstract class AbstractPluginConnectedEvent implements PluginConnectedEvent {
 

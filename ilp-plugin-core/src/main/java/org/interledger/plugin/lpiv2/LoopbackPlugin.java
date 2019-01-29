@@ -17,27 +17,14 @@ import java.util.concurrent.CompletableFuture;
  */
 public class LoopbackPlugin extends AbstractPlugin<PluginSettings> implements Plugin<PluginSettings> {
 
-  public static final InterledgerAddress LOOPBACK_ADDRESS = InterledgerAddress.of("self.loopback");
-
   public static final String PLUGIN_TYPE_STRING = "LoopbackPlugin";
   public static final PluginType PLUGIN_TYPE = PluginType.of(PLUGIN_TYPE_STRING);
 
   /**
-   * Required-args Constructor, instantiating this plugin with an account of {@link #LOOPBACK_ADDRESS}.
-   *
-   * @param localNodeAddress The ILP address of the node operating this plugin.
-   */
-  public LoopbackPlugin(final InterledgerAddress localNodeAddress) {
-    this(localNodeAddress, LOOPBACK_ADDRESS);
-  }
-
-  /**
    * Required-args Constructor.
-   *
-   * @param localNodeAddress The ILP address of the node operating this plugin.
    */
-  public LoopbackPlugin(final InterledgerAddress localNodeAddress, final InterledgerAddress accountAddress) {
-    super(pluginSettings(localNodeAddress, accountAddress));
+  public LoopbackPlugin(final InterledgerAddress operatorAddress) {
+    super(pluginSettings(operatorAddress));
 
     // This is called when the other side of the account relationship has called sendData, and a packet has been
     // forward (usually through a Connector) to this plugin, which will handle the incoming prepare packet.
@@ -56,13 +43,10 @@ public class LoopbackPlugin extends AbstractPlugin<PluginSettings> implements Pl
     this.registerMoneyHandler((amount) -> CompletableFuture.completedFuture(null));
   }
 
-  private static final PluginSettings pluginSettings(
-      final InterledgerAddress localNodeAddress, final InterledgerAddress accountAddress
-  ) {
+  private static final PluginSettings pluginSettings(final InterledgerAddress localNodeAddress) {
     return PluginSettings.builder()
         .pluginType(LoopbackPlugin.PLUGIN_TYPE)
         .operatorAddress(localNodeAddress)
-        .accountAddress(accountAddress)
         .build();
   }
 

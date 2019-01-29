@@ -1,6 +1,5 @@
 package org.interledger.plugin.lpiv2.btp2.subprotocols;
 
-import org.interledger.btp.BtpSubProtocol;
 import org.interledger.btp.BtpSubProtocol.ContentType;
 import org.interledger.core.asn.framework.InterledgerCodecContextFactory;
 import org.interledger.encoding.asn.framework.CodecContext;
@@ -47,7 +46,7 @@ public class BtpSubProtocolHandlerRegistry {
         BTP_SUB_PROTOCOL_AUTH, ContentType.MIME_APPLICATION_OCTET_STREAM, authBtpSubprotocolHandler
     );
 
-    // Register the ILP BTP sub-protocol handler.
+    // Register the Client-mode ILP BTP sub-protocol handler.
     this.putHandler(
         BTP_SUB_PROTOCOL_ILP, ContentType.MIME_APPLICATION_OCTET_STREAM, new IlpBtpSubprotocolHandler(ilpCodecContext)
     );
@@ -92,7 +91,9 @@ public class BtpSubProtocolHandlerRegistry {
    * @param contentType     The {@link ContentType} that the supplied {@code handler} can handle.
    * @param handler         A {@link AbstractBtpSubProtocolHandler} to handle a BTP sub-protocol.
    *
-   * @return The added {@link BtpSubProtocol}.
+   * @return the previous value associated with <tt>key</tt>, or <tt>null</tt> if there was no mapping for <tt>key</tt>.
+   *     (A <tt>null</tt> return can also indicate that the map previously associated <tt>null</tt> with <tt>key</tt>,
+   *     if the implementation supports <tt>null</tt> values.)
    */
   public AbstractBtpSubProtocolHandler putHandler(
       final String subProtocolName,

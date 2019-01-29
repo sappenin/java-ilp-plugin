@@ -17,7 +17,7 @@ public class BtpSocketHandler { //extends BinaryWebSocketHandler implements Plug
 
 //  private final Logger logger = LoggerFactory.getLogger(this.getClass());
 //
-//  // Each Http request will create its own Socket, which WebSockets will continue to use after upgrading the HTTP
+//  // Each Http request will construct its own Socket, which WebSockets will continue to use after upgrading the HTTP
 //  // connection. However, until the BTP auth message is encountered, these WebSocketSessions cannot be connected to an
 //  // actual plugin. Thus, we store a Map of WebSocketSessions keys by the WebSocketSession identifier.
 //  private final ServerAuthBtpSubprotocolHandler authBtpSubprotocolHandler;

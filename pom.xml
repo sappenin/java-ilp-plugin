@@ -43,7 +43,7 @@
 
   <properties>
     <jackson-annotations.version>2.8.9</jackson-annotations.version>
-    <guava.version>21.0</guava.version>
+    <guava.version>27.0.1-jre</guava.version>
     <immutables.version>2.7.4</immutables.version>
     <ilp-core.version>0.15.0-SNAPSHOT</ilp-core.version>
 
@@ -74,6 +74,7 @@
     <!--<module>ilp-plugin-connections</module>-->
     <module>ilp-plugin-btp</module>
     <module>ilp-plugin-btp-springws</module>
+    <module>ilp-plugin-btp-server-spring</module>
     <!--<module>ilp-plugin-bpp-grpc</module>-->
   </modules>
 

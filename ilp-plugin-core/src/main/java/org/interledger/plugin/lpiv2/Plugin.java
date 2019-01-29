@@ -33,6 +33,14 @@ import java.util.concurrent.CompletableFuture;
 public interface Plugin<PS extends PluginSettings> extends Ping, DataSender, MoneySender, Connectable {
 
   /**
+   * A unique identifier for this {@link Plugin}. This value is generally set only once, (e.g., in a Connector to
+   * correlate a Plugin to an account identifier) so that the same plugin can be referenced across requests.
+   *
+   * @return A {@link PluginId}.
+   */
+  Optional<PluginId> getPluginId();
+
+  /**
    * The settings for this Plugin.
    */
   PS getPluginSettings();

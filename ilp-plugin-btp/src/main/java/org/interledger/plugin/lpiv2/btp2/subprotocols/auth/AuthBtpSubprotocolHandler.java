@@ -44,8 +44,6 @@ public abstract class AuthBtpSubprotocolHandler extends AbstractBtpSubProtocolHa
     Objects.requireNonNull(token);
     Objects.requireNonNull(username);
 
-    btpSession.setAccountAddress(accountAddress);
-
     final BtpSessionCredentials credentials = ImmutableBtpSessionCredentials.builder()
         .authUsername(username)
         .authToken(token)

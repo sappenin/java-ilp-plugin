@@ -1,7 +1,7 @@
 package org.interledger.plugin;
 
-import org.interledger.core.InterledgerAddress;
 import org.interledger.plugin.lpiv2.Plugin;
+import org.interledger.plugin.lpiv2.PluginId;
 import org.interledger.plugin.lpiv2.events.PluginDisconnectedEvent;
 import org.interledger.plugin.lpiv2.events.PluginEventListener;
 
@@ -17,46 +17,47 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 /**
- * An abstract implementation of {@link ConnectedPluginsManager}.
+ * An abstract implementation of {@link ConnectedPluginsManager} that holds onto a plugin as long as its connected, and
+ * removes the plugin upon a disconnect.
  */
 public abstract class AbstractConnectedPluginsManager implements ConnectedPluginsManager, PluginEventListener {
 
   protected final Logger logger = LoggerFactory.getLogger(this.getClass());
 
-  private Map<InterledgerAddress, Plugin<?>> connectedPlugins;
+  private Map<PluginId, Plugin<?>> connectedPlugins;
 
   public AbstractConnectedPluginsManager() {
     this.connectedPlugins = Maps.newConcurrentMap();
   }
 
   @Override
-  public Plugin<?> putConnectedPlugin(final InterledgerAddress accountAddress, final Plugin<?> plugin) {
+  public Plugin<?> putConnectedPlugin(final Plugin<?> plugin) {
     plugin.addPluginEventListener(UUID.randomUUID(), this);
-    return this.connectedPlugins.putIfAbsent(accountAddress, plugin);
+    return this.connectedPlugins.putIfAbsent(plugin.getPluginId().get(), plugin);
   }
 
   @Override
-  public Optional<Plugin<?>> getConnectedPlugin(final InterledgerAddress accountAddress) {
-    Objects.requireNonNull(accountAddress);
-    return Optional.of(connectedPlugins.get(accountAddress));
+  public Optional<Plugin<?>> getConnectedPlugin(final PluginId pluginId) {
+    Objects.requireNonNull(pluginId);
+    return Optional.ofNullable(connectedPlugins.get(pluginId));
   }
 
-  public Stream<InterledgerAddress> getAllConnectedPluginAddresses() {
+  public Stream<PluginId> getAllConnectedPluginIds() {
     return this.connectedPlugins.keySet().stream();
   }
 
   @Override
-  public CompletableFuture<Void> removeConnectedPlugin(final InterledgerAddress accountAddress) {
-    Objects.requireNonNull(accountAddress);
+  public CompletableFuture<Void> removeConnectedPlugin(final PluginId pluginId) {
+    Objects.requireNonNull(pluginId);
 
-    return this.getConnectedPlugin(accountAddress)
-        .map(plugin -> plugin.disconnect().thenAccept(($) -> connectedPlugins.remove(accountAddress)))
+    return this.getConnectedPlugin(pluginId)
+        .map(plugin -> plugin.disconnect().thenAccept(($) -> connectedPlugins.remove(pluginId)))
         .orElseGet(() -> CompletableFuture.completedFuture(null));
   }
 
   @Override
   public void onDisconnect(final PluginDisconnectedEvent event) {
     Objects.requireNonNull(event);
-    this.removeConnectedPlugin(event.getPlugin().getPluginSettings().getAccountAddress());
+    this.removeConnectedPlugin(event.getPlugin().getPluginId().get());
   }
 }

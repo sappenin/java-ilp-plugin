@@ -33,13 +33,13 @@ public class TestHelpers {
         return PluginType.of("ilp-plugin-mock");
       }
 
-      /**
-       * The ILP Address for remote peer account this Plugin is connecting to...
-       */
-      @Override
-      public InterledgerAddress getAccountAddress() {
-        return PEER_ACCOUNT;
-      }
+//      /**
+//       * The ILP Address for remote peer account this Plugin is connecting to...
+//       */
+//      @Override
+//      public InterledgerAddress getAccountAddress() {
+//        return PEER_ACCOUNT;
+//      }
 
       /**
        * The ILP address of the ILP Node operating this plugin.

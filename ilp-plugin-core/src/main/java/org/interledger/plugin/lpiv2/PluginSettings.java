@@ -26,11 +26,6 @@ public interface PluginSettings {
   InterledgerAddress getOperatorAddress();
 
   /**
-   * The ILP Address for the Account this Plugin is operating upon.
-   */
-  InterledgerAddress getAccountAddress();
-
-  /**
    * Additional, custom settings that any plugin can define.
    */
   Map<String, Object> getCustomSettings();

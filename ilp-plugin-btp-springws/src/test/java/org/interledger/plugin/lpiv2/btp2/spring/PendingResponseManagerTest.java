@@ -4,6 +4,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.fail;
 
+import org.interledger.plugin.lpiv2.btp2.spring.PendingResponseManager.NoPendingResponseException;
 import org.interledger.plugin.lpiv2.btp2.spring.PendingResponseManager.PendingResponse;
 
 import com.google.common.collect.Lists;
@@ -12,12 +13,15 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Unit tests for {@link PendingResponseManager}.
@@ -40,9 +44,9 @@ public class PendingResponseManagerTest {
 
   @Test(expected = RuntimeException.class)
   public void testScheduleSamePendingResponseTwice() {
-    pendingResponseManager.registerPendingResponse(1, 2000, TimeUnit.MILLISECONDS);
+    pendingResponseManager.registerPendingResponse(1, "testResponse", Duration.ofMillis(2000));
     try {
-      pendingResponseManager.registerPendingResponse(1, 2000, TimeUnit.MILLISECONDS);
+      pendingResponseManager.registerPendingResponse(1, "testResponse", Duration.ofMillis(2000));
     } catch (RuntimeException e) {
       assertThat(e.getMessage(), is("Attempted to schedule PendingResponse `1` twice!"));
       throw e;
@@ -57,11 +61,11 @@ public class PendingResponseManagerTest {
    * Tests a single call of the Manager for the success scenario.
    */
   @Test
-  public void testSingleSuccessfulResponse() {
+  public void testSingleSuccessfulResponse() throws NoPendingResponseException {
     long requestId = 1L;
 
     final CompletableFuture<String> response = pendingResponseManager
-        .registerPendingResponse(requestId, 2000, TimeUnit.MILLISECONDS);
+        .registerPendingResponse(requestId, Duration.ofMillis(2000));
     assertThat(response.isDone(), is(false));
     assertThat(response.isCompletedExceptionally(), is(false));
     assertThat(response.isCancelled(), is(false));
@@ -87,8 +91,8 @@ public class PendingResponseManagerTest {
     this.validateCompletableFutureState(pendingResponse.getTimeoutFuture(), true, true, true, 0);
     this.validateCompletableFutureState(pendingResponse.getJoinableResponseFuture(), true, false, false, 0);
 
-    // Internal State Validations
-    assertThat(pendingResponseManager.getPendingResponses().size(), is(0));
+    // Internal State Validations. All pendingResponses will likely be around since they're asynchronously removed.
+    assertThat(pendingResponseManager.getPendingResponsesMap().size(), is(1));
     this.assertEmptyExpiryExecutor();
   }
 
@@ -96,13 +100,13 @@ public class PendingResponseManagerTest {
    * Tests a single call of the Manager for the success scenario.
    */
   @Test
-  public void testMultipleSuccessfulResponses() {
+  public void testMultipleSuccessfulResponses() throws InterruptedException {
     final int numThreads = 227;
 
     // Make 227 PendingResponses, all waiting...
     final List<CompletableFuture<String>> responses = Lists.newArrayList();
     for (int requestId = 0; requestId < numThreads; requestId++) {
-      responses.add(pendingResponseManager.registerPendingResponse(requestId, 1000, TimeUnit.MILLISECONDS));
+      responses.add(pendingResponseManager.registerPendingResponse(requestId, Duration.ofMillis(1000)));
     }
 
     // Queue up 227 CompletableFutures that will join randomly, but with the correct request id.
@@ -110,15 +114,21 @@ public class PendingResponseManagerTest {
     for (int requestId = 0; requestId < numThreads; requestId++) {
       final int fRequestId = requestId;
       pendingResponses.add(
-          CompletableFuture.supplyAsync(() -> pendingResponseManager.joinPendingResponse(fRequestId, fRequestId + ""))
+          CompletableFuture.supplyAsync(() -> {
+            try {
+              return pendingResponseManager.joinPendingResponse(fRequestId, fRequestId + "");
+            } catch (NoPendingResponseException e) {
+              throw new RuntimeException(e);
+            }
+          })
       );
     }
 
-    final AtomicInteger counter = new AtomicInteger();
+    final CountDownLatch latch = new CountDownLatch(numThreads);
     pendingResponses.parallelStream()
         .map(CompletableFuture::join)
         .forEach(pendingResponse -> {
-          counter.incrementAndGet();
+          latch.countDown();
           validateCompletableFutureState(pendingResponse.getTimeoutFuture(), true, true, true, 0);
           validateCompletableFutureState(pendingResponse.getJoinableResponseFuture(), true, false, false, 0);
 
@@ -133,10 +143,11 @@ public class PendingResponseManagerTest {
           }).join();
 
         });
-    assertThat(counter.get(), is(numThreads));
 
-    // Internal State Validations
-    assertThat(pendingResponseManager.getPendingResponses().size(), is(0));
+    latch.await(5, TimeUnit.SECONDS);
+
+    // Internal State Validations. All pendingResponses will likely be around since they're asynchronously removed.
+    assertThat(pendingResponseManager.getPendingResponsesMap().size(), is(numThreads));
     this.assertEmptyExpiryExecutor();
     // Must be called after assertEmptyExpiryExecutor
     assertThat(pendingResponseManager.getExpiryExecutor().getCompletedTaskCount(), is(Long.valueOf(numThreads)));
@@ -156,7 +167,7 @@ public class PendingResponseManagerTest {
 
     // Virtually no delay, so should always expire.
     final CompletableFuture<String> response = pendingResponseManager
-        .registerPendingResponse(requestId, 0, TimeUnit.NANOSECONDS);
+        .registerPendingResponse(requestId, Duration.ofNanos(0));
     // Give the ScheduledThreadExecutor a moment to cleanup...
     Thread.sleep(200);
     this.validateCompletableFutureState(response, true, false, true, 0);
@@ -174,8 +185,8 @@ public class PendingResponseManagerTest {
 
     this.validateCompletableFutureState(response, true, false, true, 0);
 
-    // Internal State Validations
-    assertThat(pendingResponseManager.getPendingResponses().size(), is(0));
+    // Internal State Validations. All pendingResponses will likely be around since they're asynchronously removed.
+    assertThat(pendingResponseManager.getPendingResponsesMap().size(), is(1));
     this.assertEmptyExpiryExecutor();
   }
 
@@ -189,7 +200,7 @@ public class PendingResponseManagerTest {
 
     // Virtually no delay, so should always expire.
     final CompletableFuture<String> response = pendingResponseManager
-        .registerPendingResponse(requestId, 1, TimeUnit.NANOSECONDS);
+        .registerPendingResponse(requestId, Duration.ofNanos(1));
     // Give the ScheduledThreadExecutor a moment to cleanup...
     Thread.sleep(200);
     this.validateCompletableFutureState(response, true, false, true, 0);
@@ -210,26 +221,27 @@ public class PendingResponseManagerTest {
     // PendingResponse Verification
     try {
       pendingResponseManager.joinPendingResponse(requestId, "foo");
-    } catch (RuntimeException e) {
+    } catch (Exception e) {
       assertThat(e.getMessage(), is("No PendingResponse available to connect to responseToReturn: foo"));
     }
 
-    // Internal State Validations
-    assertThat(pendingResponseManager.getPendingResponses().size(), is(0));
+    // Internal State Validations. All pendingResponses will likely be around since they're asynchronously removed.
+    assertThat(pendingResponseManager.getPendingResponsesMap().size(), is(1));
     this.assertEmptyExpiryExecutor();
   }
 
   /**
-   * Tests a single call of the Manager for the success scenario.
+   * Tests a multithreaded-call of the Manager for the timeout scenario (i.e., all PendingResponses timeout, and then
+   * `join` is called.
    */
   @Test
-  public void testMultipleTimeoutResponses() {
+  public void testMultipleTimeoutResponses() throws InterruptedException {
     final int numThreads = 137;
 
     // Make 138 PendingResponses, all which expire immediately...
     final List<CompletableFuture<String>> responses = Lists.newArrayList();
     for (int requestId = 0; requestId < numThreads; requestId++) {
-      responses.add(pendingResponseManager.registerPendingResponse(requestId, 1, TimeUnit.NANOSECONDS));
+      responses.add(pendingResponseManager.registerPendingResponse(requestId, Duration.ofNanos(1)));
     }
 
     // Validate each response to the caller...
@@ -237,8 +249,14 @@ public class PendingResponseManagerTest {
       // Expect the caller to see an exception!
       cfResponse.handle((actualValue, error) -> {
         if (error != null) {
-          assertThat(error instanceof CompletionException, is(true));
-          assertThat(error.getMessage(), is("java.util.concurrent.TimeoutException"));
+          if (error.getCause() != null && error.getCause() instanceof CancellationException) {
+            logger.error(error.getCause().getMessage(), error.getCause());
+            fail("Response should have timed-out, but instead encountered an error while cancelling.");
+          } else {
+            assertThat(error instanceof CompletionException, is(true));
+            assertThat(error.getCause() instanceof TimeoutException, is(true));
+            assertThat(error.getMessage(), is("java.util.concurrent.TimeoutException"));
+          }
         } else {
           fail("Unexpected Completion: " + actualValue);
         }
@@ -246,8 +264,8 @@ public class PendingResponseManagerTest {
       }).join();
     });
 
-    // Internal State Validations
-    assertThat(pendingResponseManager.getPendingResponses().size(), is(0));
+    // Internal State Validations. All pendingResponses will likely be around since they're asynchronously removed.
+    assertThat(pendingResponseManager.getPendingResponsesMap().size(), is(numThreads));
     this.assertEmptyExpiryExecutor();
     // Must be called after assertEmptyExpiryExecutor
     assertThat(pendingResponseManager.getExpiryExecutor().getCompletedTaskCount(), is(Long.valueOf(numThreads)));
@@ -257,30 +275,36 @@ public class PendingResponseManagerTest {
     for (int requestId = 0; requestId < numThreads; requestId++) {
       final int fRequestId = requestId;
       pendingResponses.add(
-          CompletableFuture.supplyAsync(() -> pendingResponseManager.joinPendingResponse(fRequestId, fRequestId + ""))
+          CompletableFuture.supplyAsync(() -> {
+            try {
+              return pendingResponseManager.joinPendingResponse(fRequestId, fRequestId + "");
+            } catch (NoPendingResponseException e) {
+              throw new RuntimeException(e);
+            }
+          })
       );
     }
 
-    final AtomicInteger counter = new AtomicInteger();
+    // Assert the join response...
+    final CountDownLatch latch = new CountDownLatch(numThreads);
     pendingResponses.parallelStream().forEach(
         pendingResponse -> pendingResponse.handle((actualValue, error) -> {
           if (error != null) {
-            assertThat(error.getClass().getName(), is(CompletionException.class.getName()));
-            assertThat(error.getMessage().startsWith(
-                "org.interledger.plugin.lpiv2.btp2.spring.PendingResponseManager$NoPendingResponseException: No "
-                    + "PendingResponse available to connect to responseToReturn"),
-                is(true));
-            counter.incrementAndGet();
+            logger.error(error.getMessage(), error);
+            fail("Should not have thrown an Exception!");
           } else {
-            fail("Should have thrown a `NoPendingResponseException`!");
+            validateCompletableFutureState(actualValue.getJoinableResponseFuture(), true, true, true, 0);
+            validateCompletableFutureState(actualValue.getTimeoutFuture(), true, false, true, 0);
+            latch.countDown();
           }
           return null;
         }).join()
     );
-    assertThat(counter.get(), is(numThreads));
+
+    latch.await(5, TimeUnit.SECONDS);
 
     // Internal State Validations
-    assertThat(pendingResponseManager.getPendingResponses().size(), is(0));
+    assertThat(pendingResponseManager.getPendingResponsesMap().size(), is(numThreads));
     this.assertEmptyExpiryExecutor();
     // Must be called after assertEmptyExpiryExecutor
     assertThat(pendingResponseManager.getExpiryExecutor().getCompletedTaskCount(), is(Long.valueOf(numThreads)));
@@ -294,11 +318,11 @@ public class PendingResponseManagerTest {
    * Tests a single call of the Manager for the success scenario.
    */
   @Test
-  public void testSingleExceptionalResponse() {
+  public void testSingleExceptionalResponse() throws NoPendingResponseException {
     long requestId = 1L;
 
     final CompletableFuture<String> response = pendingResponseManager
-        .registerPendingResponse(requestId, 2000, TimeUnit.MILLISECONDS);
+        .registerPendingResponse(requestId, Duration.ofMillis(2000));
     assertThat(response.isDone(), is(false));
     assertThat(response.isCompletedExceptionally(), is(false));
     assertThat(response.isCancelled(), is(false));
@@ -325,7 +349,7 @@ public class PendingResponseManagerTest {
     this.validateCompletableFutureState(pendingResponse.getJoinableResponseFuture(), true, false, false, 0);
 
     // Internal State Validations
-    assertThat(pendingResponseManager.getPendingResponses().size(), is(0));
+    assertThat(pendingResponseManager.getPendingResponsesMap().size(), is(1));
     this.assertEmptyExpiryExecutor();
   }
 

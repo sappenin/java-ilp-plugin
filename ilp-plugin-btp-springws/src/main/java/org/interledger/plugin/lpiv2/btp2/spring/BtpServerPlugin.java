@@ -1,10 +1,10 @@
 package org.interledger.plugin.lpiv2.btp2.spring;
 
+import org.interledger.btp.BtpResponsePacket;
 import org.interledger.encoding.asn.framework.CodecContext;
 import org.interledger.plugin.lpiv2.PluginType;
 import org.interledger.plugin.lpiv2.btp2.BtpReceiver;
 import org.interledger.plugin.lpiv2.btp2.BtpSender;
-import org.interledger.plugin.lpiv2.btp2.BtpServerPluginSettings;
 import org.interledger.plugin.lpiv2.btp2.spring.converters.BinaryMessageToBtpPacketConverter;
 import org.interledger.plugin.lpiv2.btp2.spring.converters.BtpPacketToBinaryMessageConverter;
 import org.interledger.plugin.lpiv2.btp2.subprotocols.BtpSubProtocolHandlerRegistry;
@@ -36,14 +36,16 @@ public class BtpServerPlugin extends AbstractBtpPlugin<BtpServerPluginSettings> 
       final CodecContext ilpCodecContext,
       final BinaryMessageToBtpPacketConverter binaryMessageToBtpPacketConverter,
       final BtpPacketToBinaryMessageConverter btpPacketToBinaryMessageConverter,
-      final BtpSubProtocolHandlerRegistry btpSubProtocolHandlerRegistry
+      final BtpSubProtocolHandlerRegistry btpSubProtocolHandlerRegistry,
+      final PendingResponseManager<BtpResponsePacket> pendingResponseManager
   ) {
     super(
         pluginSettings,
         ilpCodecContext,
         binaryMessageToBtpPacketConverter,
         btpPacketToBinaryMessageConverter,
-        btpSubProtocolHandlerRegistry
+        btpSubProtocolHandlerRegistry,
+        pendingResponseManager
     );
 
     webSocketSession = new AtomicReference<>();
@@ -58,14 +60,16 @@ public class BtpServerPlugin extends AbstractBtpPlugin<BtpServerPluginSettings> 
       final BinaryMessageToBtpPacketConverter binaryMessageToBtpPacketConverter,
       final BtpPacketToBinaryMessageConverter btpPacketToBinaryMessageConverter,
       final BtpSubProtocolHandlerRegistry btpSubProtocolHandlerRegistry,
-      final WebSocketSession webSocketSession
+      final WebSocketSession webSocketSession,
+      final PendingResponseManager<BtpResponsePacket> pendingResponseManager
   ) {
     super(
         pluginSettings,
         ilpCodecContext,
         binaryMessageToBtpPacketConverter,
         btpPacketToBinaryMessageConverter,
-        btpSubProtocolHandlerRegistry
+        btpSubProtocolHandlerRegistry,
+        pendingResponseManager
     );
 
     this.setWebSocketSession(webSocketSession);
@@ -89,16 +93,9 @@ public class BtpServerPlugin extends AbstractBtpPlugin<BtpServerPluginSettings> 
     return this.webSocketSession.get();
   }
 
-  @Override
-  public void doSendMoney(BigInteger amount) {
-    // This is a no-op by default. Sub-classes should override this method to actually send money to the remote peer.
-  }
-
-  // TODO: Consider this a bit more. Either the session should only be set once, in which case we should consider a WeakReference.
-  // Else, it can be set whenever connect() is called, but this feels a bit strange (i.e., a server plugin should probably
-  // just go away if the connection closes).
-
   /**
+   * TODO: Consider a WeakReference to the WebSocketSession?
+   *
    * @param webSocketSession
    */
   public void setWebSocketSession(final WebSocketSession webSocketSession) {
@@ -106,5 +103,10 @@ public class BtpServerPlugin extends AbstractBtpPlugin<BtpServerPluginSettings> 
     if (!this.webSocketSession.compareAndSet(null, webSocketSession)) {
       throw new RuntimeException("Can't set a WebSocket session into a BtpServerPlugin more than once!");
     }
+  }
+
+  @Override
+  public void doSendMoney(BigInteger amount) {
+    // This is a no-op by default. Sub-classes should override this method to actually send money to the remote peer.
   }
 }

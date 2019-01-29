@@ -5,6 +5,7 @@ import org.interledger.plugin.lpiv2.btp2.subprotocols.BtpAuthenticator.AlwaysAll
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Provides support for `auth_username` in BTP Auth, which allows multiple clients to connect to a single BTP websocket
@@ -26,12 +27,13 @@ public interface BtpMultiAuthenticator {
    */
   class AlwaysAllowedBtpMultiAuthenticator implements BtpMultiAuthenticator {
 
-    // An ILP address of this node to root all child accounts under.
-    private final InterledgerAddress nodeIlpAddress;
+    // An ILP address of this node to root all child accounts under. Modeled as a Supplier to allow late-binding and
+    // potentially runtime changes to the operator.
+    private final Supplier<InterledgerAddress> nodeIlpAddressSupplier;
 
-    public AlwaysAllowedBtpMultiAuthenticator(final InterledgerAddress nodeIlpAddress) {
-      Objects.requireNonNull(nodeIlpAddress);
-      this.nodeIlpAddress = Objects.requireNonNull(nodeIlpAddress);
+    public AlwaysAllowedBtpMultiAuthenticator(final Supplier<InterledgerAddress> nodeIlpAddressSupplier) {
+      Objects.requireNonNull(nodeIlpAddressSupplier);
+      this.nodeIlpAddressSupplier = Objects.requireNonNull(nodeIlpAddressSupplier);
     }
 
     @Override
@@ -51,7 +53,7 @@ public interface BtpMultiAuthenticator {
      */
     private InterledgerAddress usernameToIlpAddress(final String username) {
       Objects.requireNonNull(username);
-      return this.nodeIlpAddress.with(username);
+      return this.nodeIlpAddressSupplier.get().with(username);
     }
 
   }

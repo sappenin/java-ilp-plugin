@@ -2,10 +2,14 @@ package org.interledger.plugin.lpiv2.btp2.spring;
 
 import org.interledger.plugin.lpiv2.PluginType;
 import org.interledger.plugin.lpiv2.btp2.BtpPluginSettings;
+import org.interledger.plugin.lpiv2.btp2.spring.ImmutableBtpClientPluginSettings.Builder;
 
 import com.google.common.base.Preconditions;
 import org.immutables.value.Value;
+import org.immutables.value.Value.Default;
 
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -31,9 +35,9 @@ public interface BtpClientPluginSettings extends BtpPluginSettings {
   /**
    * Construct a new Builder.
    *
-   * @return A new instance of {@link ImmutableBtpClientPluginSettings.Builder}.
+   * @return A new instance of {@link Builder}.
    */
-  static ImmutableBtpClientPluginSettings.Builder builder() {
+  static Builder builder() {
     return ImmutableBtpClientPluginSettings.builder();
   }
 
@@ -72,6 +76,7 @@ public interface BtpClientPluginSettings extends BtpPluginSettings {
 
     Optional.ofNullable(customSettings.get(KEY_REMOTE_PEER_PORT))
         .map(Object::toString)
+        .map(Integer::valueOf)
         .ifPresent(builder::remotePeerPort);
 
     Optional.ofNullable(customSettings.get(KEY_USER_NAME))
@@ -116,8 +121,20 @@ public interface BtpClientPluginSettings extends BtpPluginSettings {
    * The port for the remote BTP peer.
    */
   @Value.Default
-  default String getRemotePeerPort() {
-    return "6666";
+  default int getRemotePeerPort() {
+    return 6666;
+  }
+
+  @Override
+  @Default
+  default Duration getMinMessageWindow() {
+    return Duration.of(1000, ChronoUnit.MILLIS);
+  }
+
+  @Override
+  @Default
+  default Duration getSendMoneyWaitTime() {
+    return Duration.of(30, ChronoUnit.SECONDS);
   }
 
   @Value.Check

@@ -10,12 +10,9 @@ import org.interledger.btp.BtpMessage;
 import org.interledger.btp.BtpResponse;
 import org.interledger.btp.BtpRuntimeException;
 import org.interledger.btp.BtpSession;
-import org.interledger.btp.BtpSessionCredentials;
 import org.interledger.btp.BtpSubProtocol;
 import org.interledger.btp.BtpSubProtocols;
 import org.interledger.btp.BtpTransfer;
-import org.interledger.btp.ImmutableBtpSessionCredentials;
-import org.interledger.core.InterledgerAddress;
 import org.interledger.plugin.lpiv2.btp2.subprotocols.AbstractBtpSubProtocolHandler;
 import org.interledger.plugin.lpiv2.btp2.subprotocols.BtpAuthenticator;
 import org.interledger.plugin.lpiv2.btp2.subprotocols.BtpMultiAuthenticator;
@@ -34,14 +31,11 @@ import java.util.concurrent.CompletableFuture;
  */
 public class ServerAuthBtpSubprotocolHandler extends AuthBtpSubprotocolHandler {
 
-  private final BtpAuthenticator btpSingleAuthenticator;
   private final BtpMultiAuthenticator btpMultiAuthenticator;
 
   public ServerAuthBtpSubprotocolHandler(
-      final BtpAuthenticator btpSingleAuthenticator,
       final BtpMultiAuthenticator btpMultiAuthenticator
   ) {
-    this.btpSingleAuthenticator = Objects.requireNonNull(btpSingleAuthenticator);
     this.btpMultiAuthenticator = Objects.requireNonNull(btpMultiAuthenticator);
   }
 
@@ -97,7 +91,10 @@ public class ServerAuthBtpSubprotocolHandler extends AuthBtpSubprotocolHandler {
         .map($ -> btpMultiAuthenticator.getBtpAuthenticator($)
             .orElseThrow(() -> new BtpAuthenticationException("Invalid BTP Auth Credentials for " + auth_username))
         )
-        .orElse(btpSingleAuthenticator);
+        // TODO: If we ever need to support single-account BTP, we should consider an implementation of MultiAccountAuth
+        // that always just returns the same thing, regardless of input. In that way, it would never throw an exception,
+        // and this exception would never be thrown.
+        .orElseThrow(() -> new RuntimeException("No BTPAuthenticator for `auth_username`: " + auth_username));
 
     // TODO: Put all of this into the CF.
     final boolean authenticated = btpAuthenticator.isValidAuthToken(auth_token);
@@ -163,33 +160,6 @@ public class ServerAuthBtpSubprotocolHandler extends AuthBtpSubprotocolHandler {
 
     logger.error("Incoming Auth Subprotocol BtpError: {}", incomingBtpError);
     return CompletableFuture.completedFuture(null);
-  }
-
-  /**
-   * After a successful BTP Authentication flow, update the {@code btpSession} to contain the proper data, such as a
-   * decoded username, the corresponding accountAddress, and the auth state.
-   *
-   * @param btpSession The {@link BtpSession} to update.
-   * @param token      An authorization token used to authenticate the indicated user.
-   * @param username   The optionally-present username for the signed-in account.
-   */
-  protected void storeAuthInBtpSession(
-      final BtpSession btpSession, final InterledgerAddress accountAddress,
-      final String token, final Optional<String> username
-  ) {
-    Objects.requireNonNull(btpSession);
-    Objects.requireNonNull(accountAddress);
-    Objects.requireNonNull(token);
-    Objects.requireNonNull(username);
-
-    btpSession.setAccountAddress(accountAddress);
-
-    final BtpSessionCredentials credentials = ImmutableBtpSessionCredentials.builder()
-        .authUsername(username)
-        .authToken(token)
-        .build();
-    btpSession.setBtpSessionCredentials(credentials);
-    btpSession.setAuthenticated();
   }
 
 }

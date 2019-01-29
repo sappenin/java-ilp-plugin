@@ -1,7 +1,7 @@
 package org.interledger.plugin;
 
-import org.interledger.core.InterledgerAddress;
 import org.interledger.plugin.lpiv2.Plugin;
+import org.interledger.plugin.lpiv2.PluginId;
 import org.interledger.plugin.lpiv2.PluginSettings;
 
 import java.util.Objects;
@@ -9,45 +9,35 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Tracks multiple plugins over a single network transport.
+ * Tracks plugins that have successfully connected, whether client plugins making outbound connections or server plugins
+ * that are created in response to an incoming server request.
  */
 public interface ConnectedPluginsManager {
 
   /**
    * Accessor for an optionally-present Plugin that support the specified account address.
    *
-   * @param accountAddress
+   * @param pluginId The unique identifier for a Plugin.
    *
    * @return An optionally-present {@link Plugin}.
    */
-  Optional<Plugin<?>> getConnectedPlugin(InterledgerAddress accountAddress);
+  Optional<Plugin<?>> getConnectedPlugin(PluginId pluginId);
 
   /**
-   * Accessor for an optionally-present Plugin that support the specified account address.
+   * Accessor for an optionally-present Plugin that supports the specified account address.
    *
-   * @param accountAddress
+   * @param pluginId The unique identifier for a Plugin.
    *
    * @return An optionally-present {@link Plugin}.
    */
   default <PS extends PluginSettings, P extends Plugin<PS>> Optional<P> getConnectedPlugin(
-      final Class<P> $, final InterledgerAddress accountAddress
+      final Class<P> $, final PluginId pluginId
   ) {
-    Objects.requireNonNull(accountAddress);
-    return this.getConnectedPlugin(accountAddress).map(plugin -> (P) plugin);
+    Objects.requireNonNull(pluginId);
+    return this.getConnectedPlugin(pluginId).map(plugin -> (P) plugin);
   }
 
-  /**
-   * @param accountAddress
-   * @param plugin
-   *
-   * @return
-   */
-  Plugin<?> putConnectedPlugin(final InterledgerAddress accountAddress, final Plugin<?> plugin);
+  Plugin<?> putConnectedPlugin(final Plugin<?> plugin);
 
-  /**
-   * @param accountAddress
-   *
-   * @return
-   */
-  CompletableFuture<Void> removeConnectedPlugin(final InterledgerAddress accountAddress);
+  CompletableFuture<Void> removeConnectedPlugin(final PluginId pluginId);
 }

@@ -8,8 +8,9 @@ import org.interledger.btp.BtpSessionCredentials;
 import org.interledger.btp.BtpSubProtocols;
 import org.interledger.core.InterledgerAddress;
 import org.interledger.plugin.AbstractConnectedPluginsManager;
-import org.interledger.plugin.lpiv2.btp2.BtpServerPluginSettings;
-import org.interledger.plugin.lpiv2.btp2.ImmutableBtpServerPluginSettings;
+import org.interledger.plugin.PluginFactory;
+import org.interledger.plugin.lpiv2.DefaultPluginSettings;
+import org.interledger.plugin.lpiv2.PluginId;
 import org.interledger.plugin.lpiv2.btp2.spring.converters.BinaryMessageToBtpPacketConverter;
 import org.interledger.plugin.lpiv2.btp2.spring.converters.BtpConversionException;
 import org.interledger.plugin.lpiv2.btp2.spring.converters.BtpPacketToBinaryMessageConverter;
@@ -19,6 +20,7 @@ import org.interledger.plugin.lpiv2.events.PluginDisconnectedEvent;
 import org.interledger.plugin.lpiv2.events.PluginErrorEvent;
 import org.interledger.plugin.lpiv2.events.PluginEventListener;
 
+import com.google.common.eventbus.EventBus;
 import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketHandler;
@@ -28,8 +30,10 @@ import org.springframework.web.socket.WebSocketSession;
 import java.io.IOException;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -39,28 +43,32 @@ import java.util.stream.Collectors;
 public class BtpConnectedPluginsManager extends AbstractConnectedPluginsManager
     implements WebSocketHandler, PluginEventListener {
 
-  // Each Http request will create its own Socket, which WebSockets will continue to use after upgrading the HTTP
+  // Each Http request will construct its own Socket, which WebSockets will continue to use after upgrading the HTTP
   // connection. However, until the BTP auth message is encountered, these WebSocketSessions cannot be connected to an
   // actual plugin.
 
   // The ILP address of the node operating this Manager.
-  private final InterledgerAddress operatorAddress;
-
-  private final BtpServerPluginFactory btpServerPluginFactory;
-
+  private final Supplier<InterledgerAddress> operatorAddressSupplier;
+  private final DefaultPluginSettings defaultPluginSettings;
+  private final PluginFactory pluginFactory;
   private final ServerAuthBtpSubprotocolHandler authBtpSubprotocolHandler;
   private final BinaryMessageToBtpPacketConverter binaryMessageToBtpPacketConverter;
   private final BtpPacketToBinaryMessageConverter btpPacketToBinaryMessageConverter;
+  private final EventBus eventBus;
 
   public BtpConnectedPluginsManager(
-      final InterledgerAddress operatorAddress,
-      final BtpServerPluginFactory btpServerPluginFactory,
+      final Supplier<InterledgerAddress> operatorAddressSupplier,
+      final DefaultPluginSettings defaultPluginSettings,
+      final PluginFactory pluginFactory,
       final BinaryMessageToBtpPacketConverter binaryMessageToBtpPacketConverter,
       final BtpPacketToBinaryMessageConverter btpPacketToBinaryMessageConverter,
-      final ServerAuthBtpSubprotocolHandler authBtpSubprotocolHandler
+      final ServerAuthBtpSubprotocolHandler authBtpSubprotocolHandler,
+      final EventBus eventBus
   ) {
-    this.operatorAddress = Objects.requireNonNull(operatorAddress);
-    this.btpServerPluginFactory = Objects.requireNonNull(btpServerPluginFactory);
+    this.eventBus = Objects.requireNonNull(eventBus);
+    this.operatorAddressSupplier = Objects.requireNonNull(operatorAddressSupplier);
+    this.defaultPluginSettings = Objects.requireNonNull(defaultPluginSettings);
+    this.pluginFactory = Objects.requireNonNull(pluginFactory);
     this.binaryMessageToBtpPacketConverter = Objects.requireNonNull(binaryMessageToBtpPacketConverter);
     this.btpPacketToBinaryMessageConverter = Objects.requireNonNull(btpPacketToBinaryMessageConverter);
     this.authBtpSubprotocolHandler = Objects.requireNonNull(authBtpSubprotocolHandler);
@@ -87,8 +95,6 @@ public class BtpConnectedPluginsManager extends AbstractConnectedPluginsManager
     final BtpSession btpSession = BtpSessionUtils.getBtpSessionFromWebSocketSession(webSocketSession)
         .orElseThrow(() -> new RuntimeException("BtpSession is required!"));
 
-    final Optional<BinaryMessage> response;
-
     if (!btpSession.isAuthenticated()) {
       // Do Auth. This will merely initialize the credentials into the BTPSession and return an Ack.
       this.handleBinaryAuthMessage(webSocketSession, incomingBinaryMessage)
@@ -104,11 +110,13 @@ public class BtpConnectedPluginsManager extends AbstractConnectedPluginsManager
     } else {
       // If the auth subprotocol completes successfully, then we'll end up here with an authenticated Websocket Session,
       // in which case we can simply delegate to a connected plugin....
-      final InterledgerAddress accountAddress = btpSession.getAccountAddress()
-          .orElseThrow(() -> new RuntimeException("No account in BTP Session!"));
-      final BtpServerPlugin plugin = this.getConnectedPlugin(BtpServerPlugin.class, accountAddress)
-          .orElseThrow(() -> new RuntimeException("No Plugin registered for Account: " + accountAddress));
 
+      // The PluginId for a BTP Plugin is the BTP Session Id.
+      final PluginId pluginId = PluginId.of(btpSession.getWebsocketSessionId());
+      final BtpServerPlugin plugin = this.getConnectedPlugin(BtpServerPlugin.class, pluginId)
+          .orElseThrow(() -> new RuntimeException(
+              String.format("No Plugin found for Session: `%s`", pluginId))
+          );
       plugin.handleBinaryMessage(webSocketSession, incomingBinaryMessage);
     }
   }
@@ -143,27 +151,27 @@ public class BtpConnectedPluginsManager extends AbstractConnectedPluginsManager
                 // Construct a new BtpServerPlugin and register it with this Manager.
 
                 // Get Auth from BTPSession.
-                final InterledgerAddress accountAddress = btpSession.getAccountAddress()
-                    .orElseThrow(() -> new RuntimeException("BtpSession not authenticated!"));
                 final BtpSessionCredentials sessionCredentials = btpSession.getBtpSessionCredentials()
                     .orElseThrow(() -> new RuntimeException("BtpSession not authenticated!"));
+                final PluginId pluginId = PluginId.of(btpSession.getWebsocketSessionId());
 
-                final BtpServerPluginSettings btpPluginSettings = ImmutableBtpServerPluginSettings.builder()
-                    .pluginType(BtpServerPlugin.PLUGIN_TYPE)
-                    .operatorAddress(this.operatorAddress)
-                    .accountAddress(accountAddress)
-                    .authUsername(sessionCredentials.getAuthUsername())
-                    .secret(sessionCredentials.getAuthToken())
-                    .build();
-                final BtpServerPlugin newPlugin = this.btpServerPluginFactory
+                final BtpServerPluginSettings btpPluginSettings = BtpServerPluginSettings.applyCustomSettings(
+                    ImmutableBtpServerPluginSettings.builder()
+                        .operatorAddress(this.operatorAddressSupplier.get())
+                        .authUsername(sessionCredentials.getAuthUsername())
+                        .secret(sessionCredentials.getAuthToken()),
+                    defaultPluginSettings.getCustomSettings()
+                ).build();
+                final BtpServerPlugin newPlugin = this.pluginFactory
                     .constructPlugin(BtpServerPlugin.class, btpPluginSettings);
 
                 // Assign the WebSocketSession to the newly-created Plugin...
                 newPlugin.setWebSocketSession(webSocketSession);
+                newPlugin.setPluginId(pluginId);
 
-                // We add the plugin here just to be safe. When plugin.connect is called, the system will attempt to add
-                // this plugin again, but this will be a no-op due to the Map function used.
-                this.putConnectedPlugin(accountAddress, newPlugin);
+                // Connect the Server plugin...
+                newPlugin.addPluginEventListener(UUID.randomUUID(), this);
+                newPlugin.connect().join();
 
                 // Ack the response
                 final BtpSubProtocols responses = new BtpSubProtocols();
@@ -251,7 +259,7 @@ public class BtpConnectedPluginsManager extends AbstractConnectedPluginsManager
   public void afterConnectionClosed(WebSocketSession session, CloseStatus closeStatus) {
     logger.debug("WS Client Connection Closed: {}", session);
 
-    final CompletableFuture[] disconnectFutures = this.getAllConnectedPluginAddresses()
+    final CompletableFuture[] disconnectFutures = this.getAllConnectedPluginIds()
         .map(this::removeConnectedPlugin)
         .collect(Collectors.toList())
         .toArray(new CompletableFuture[0]);
@@ -277,22 +285,31 @@ public class BtpConnectedPluginsManager extends AbstractConnectedPluginsManager
   public void onConnect(final PluginConnectedEvent event) {
     Objects.requireNonNull(event);
     // If a plugin connects, it means that auth succeeded, so move that plugin into the connected Map.
-    this.putConnectedPlugin(
-        event.getPlugin().getPluginSettings().getAccountAddress(),
-        (BtpServerPlugin) event.getPlugin()
-    );
+    this.putConnectedPlugin(event.getPlugin());
+
+    // Forward this event to anything listening to this manager using the EventBus...eventually this whole method will
+    // be removed and all events and listeners will move through the eventBus.
+    this.eventBus.post(event);
   }
 
   @Override
   public void onDisconnect(final PluginDisconnectedEvent event) {
     Objects.requireNonNull(event);
     // When a plugin disconnects, remove it from this Manager so it no longer accepts calls.
-    this.removeConnectedPlugin(event.getPlugin().getPluginSettings().getAccountAddress());
+    this.removeConnectedPlugin(event.getPlugin().getPluginId().get()).join();
+
+    // Forward this event to anything listening to this manager using the EventBus...eventually this whole method will
+    // be removed and all events and listeners will move through the eventBus.
+    this.eventBus.post(event);
   }
 
   @Override
   public void onError(final PluginErrorEvent event) {
     Objects.requireNonNull(event);
     logger.error(event.getError().getMessage(), event.getError());
+
+    // Forward this event to anything listening to this manager using the EventBus...eventually this whole method will
+    // be removed and all events and listeners will move through the eventBus.
+    this.eventBus.post(event);
   }
 }

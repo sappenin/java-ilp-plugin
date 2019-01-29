@@ -16,7 +16,6 @@ import org.interledger.core.InterledgerResponsePacket;
 import org.interledger.core.asn.framework.InterledgerCodecContextFactory;
 import org.interledger.encoding.asn.framework.CodecContext;
 import org.interledger.plugin.DataHandler;
-import org.interledger.plugin.lpiv2.Plugin;
 import org.interledger.plugin.lpiv2.btp2.subprotocols.AbstractBtpSubProtocolHandler;
 import org.interledger.plugin.lpiv2.exceptions.DataHandlerAlreadyRegisteredException;
 
@@ -33,9 +32,14 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * An extension of {@link AbstractBtpSubProtocolHandler} for handling incoming <tt>ILP</tt> sub-protocol messages
- * received over BTP. This implementation essentially converts from an incoming BTP message into an ILPv4 primitive and
- * exposes methods that can be implemented to handle these messages at the ILP-layer.
+ * <p>An extension of {@link AbstractBtpSubProtocolHandler} for handling incoming <tt>ILP</tt> sub-protocol messages
+ * received over BTP.</p>
+ *
+ * <p>This implementation essentially converts from an incoming BTP message into an ILPv4 primitive and
+ * exposes methods that can be implemented to handle these messages at the ILP-layer.</p>
+ *
+ * <p>NOTE: This implementation is appropriate for handling ILP packets on a single plugin/account. A multi-account
+ * variant that is more appropriate for a BTP server scenario can be found in the ILP Connector project.</p>
  */
 public class IlpBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
 
@@ -227,8 +231,7 @@ public class IlpBtpSubprotocolHandler extends AbstractBtpSubProtocolHandler {
   /**
    * <p>Set the callback which is used to handle incoming prepared data packets. The handler should expect one
    * parameter (an ILP Prepare Packet) and return a CompletableFuture for the resulting response. If an error occurs,
-   * the callback MAY throw an exception. In general, the callback should behave as {@link
-   * Plugin#getDataSender#sendData(InterledgerPreparePacket)} does.</p>
+   * the callback MAY throw an exception.</p>
    *
    * <p>If a data handler is already set, this method throws a {@link DataHandlerAlreadyRegisteredException}. In order
    * to change the data handler, the old handler must first be removed via {@link #unregisterDataHandler()}. This is to

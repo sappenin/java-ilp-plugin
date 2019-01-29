@@ -23,10 +23,12 @@ import org.interledger.core.InterledgerResponsePacket;
 import org.interledger.encoding.asn.framework.CodecContext;
 import org.interledger.plugin.DataHandler;
 import org.interledger.plugin.lpiv2.AbstractPlugin;
+import org.interledger.plugin.lpiv2.PluginId;
 import org.interledger.plugin.lpiv2.btp2.BtpPluginSettings;
 import org.interledger.plugin.lpiv2.btp2.BtpReceiver;
 import org.interledger.plugin.lpiv2.btp2.BtpResponsePacketMapper;
 import org.interledger.plugin.lpiv2.btp2.BtpSender;
+import org.interledger.plugin.lpiv2.btp2.spring.PendingResponseManager.NoPendingResponseException;
 import org.interledger.plugin.lpiv2.btp2.spring.converters.BinaryMessageToBtpPacketConverter;
 import org.interledger.plugin.lpiv2.btp2.spring.converters.BtpConversionException;
 import org.interledger.plugin.lpiv2.btp2.spring.converters.BtpPacketToBinaryMessageConverter;
@@ -44,23 +46,19 @@ import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Duration;
-import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 public abstract class AbstractBtpPlugin<PS extends BtpPluginSettings> extends AbstractPlugin<PS>
     implements BtpSender, BtpReceiver {
 
   private final CodecContext ilpCodecContext;
   private final Random random;
-
   // The credentials to use for authenticating the BTP session this plugin is being used for.
   private final BtpSessionCredentials btpSessionCredentials;
-
   private final BinaryMessageToBtpPacketConverter binaryMessageToBtpPacketConverter;
   private final BtpPacketToBinaryMessageConverter btpPacketToBinaryMessageConverter;
   private final BtpSubProtocolHandlerRegistry btpSubProtocolHandlerRegistry;
@@ -74,7 +72,8 @@ public abstract class AbstractBtpPlugin<PS extends BtpPluginSettings> extends Ab
       final CodecContext ilpCodecContext,
       final BinaryMessageToBtpPacketConverter binaryMessageToBtpPacketConverter,
       final BtpPacketToBinaryMessageConverter btpPacketToBinaryMessageConverter,
-      final BtpSubProtocolHandlerRegistry btpSubProtocolHandlerRegistry
+      final BtpSubProtocolHandlerRegistry btpSubProtocolHandlerRegistry,
+      final PendingResponseManager<BtpResponsePacket> pendingResponseManager
   ) {
     super(pluginSettings);
 
@@ -83,7 +82,7 @@ public abstract class AbstractBtpPlugin<PS extends BtpPluginSettings> extends Ab
     this.binaryMessageToBtpPacketConverter = Objects.requireNonNull(binaryMessageToBtpPacketConverter);
     this.btpPacketToBinaryMessageConverter = Objects.requireNonNull(btpPacketToBinaryMessageConverter);
     this.btpSubProtocolHandlerRegistry = Objects.requireNonNull(btpSubProtocolHandlerRegistry);
-    this.pendingResponseManager = new PendingResponseManager<>(BtpResponsePacket.class);
+    this.pendingResponseManager = Objects.requireNonNull(pendingResponseManager);
 
     this.random = new SecureRandom();
 
@@ -121,7 +120,7 @@ public abstract class AbstractBtpPlugin<PS extends BtpPluginSettings> extends Ab
   }
 
   /**
-   * Accessor for a WebSocket session. A client will not create a session until after `connect` is called, whereas a
+   * Accessor for a WebSocket session. A client will not construct a session until after `connect` is called, whereas a
    * server should always have a session available.
    *
    * @return An instance of {@link WebSocketSession}.
@@ -152,8 +151,10 @@ public abstract class AbstractBtpPlugin<PS extends BtpPluginSettings> extends Ab
                 .requestId(nextRequestId())
                 .subProtocols(btpSubProtocols)
                 .build(),
-            // TODO: Make the expiry time-buffer configurable.
-            Duration.between(Instant.now(), preparePacket.getExpiresAt().minusSeconds(2))
+// TODO : Swap after testing
+//            Duration
+//                .between(Instant.now(), preparePacket.getExpiresAt().minus(getPluginSettings().getMinMessageWindow()))
+            Duration.of(1, ChronoUnit.HOURS)
         )
         /////////////////////////
         // Expect a response, but handle the Connection-error condition as well...
@@ -189,30 +190,29 @@ public abstract class AbstractBtpPlugin<PS extends BtpPluginSettings> extends Ab
   @Override
   public CompletableFuture<BtpResponsePacket> sendBtpMessage(final BtpMessage btpMessage, final Duration waitTime) {
     Objects.requireNonNull(btpMessage);
-    return this.sendBtpPacket(btpMessage, waitTime);
+    return this.sendBtpPacket(btpMessage, "BTP Message", waitTime);
   }
 
   @Override
   public CompletableFuture<Void> sendMoney(BigInteger amount) {
+    final long requestId = nextRequestId();
     return this
         /////////////////////////
         // Send the BTP Transfer out over the WebSocket session.
         /////////////////////////
         .sendBtpTransfer(
             BtpTransfer.builder()
-                .requestId(nextRequestId())
+                .requestId(requestId)
                 .amount(amount)
                 .build(),
-            // TODO: Make the Money expiry time-buffer configurable to accomadate settlement processes that might take
-            //  varying amounts of time.
-            Duration.of(60, ChronoUnit.SECONDS)
+            getPluginSettings().getSendMoneyWaitTime()
         )
         /////////////////////////
         // Expect a Void response, but handle the Connection-error condition as well...
         /////////////////////////
         .handle((btpResponsePacket, error) -> {
           if (error != null) {
-            logger.error(error.getMessage(), error);
+            logger.error(String.format("BtpResponsePacket Error: `%s`", requestId), error);
             return null;
           } else {
             // Convert the BtpResponse to the proper ILP response.
@@ -246,16 +246,21 @@ public abstract class AbstractBtpPlugin<PS extends BtpPluginSettings> extends Ab
   @Override
   public CompletableFuture<BtpResponsePacket> sendBtpTransfer(final BtpTransfer btpTransfer, final Duration waitTime) {
     Objects.requireNonNull(btpTransfer);
-    return this.sendBtpPacket(btpTransfer, waitTime);
+    return this.sendBtpPacket(btpTransfer, "BTP Transfer", waitTime);
   }
 
-  private final CompletableFuture<BtpResponsePacket> sendBtpPacket(final BtpPacket btpPacket, final Duration waitTime) {
+  private final CompletableFuture<BtpResponsePacket> sendBtpPacket(
+      final BtpPacket btpPacket, final String description, final Duration waitTime
+  ) {
     Objects.requireNonNull(btpPacket);
     final WebSocketSession webSocketSession = getWebSocketSession();
 
     // Translate the btpMessage to a BinaryMessage, and send out using the WebSocketSession.
     final BinaryMessage binaryMessage = this.btpPacketToBinaryMessageConverter.convert(btpPacket);
-    return this.sendMessageWithPendingRepsonse(btpPacket.getRequestId(), webSocketSession, binaryMessage, waitTime)
+    return this
+        .sendMessageWithPendingRepsonse(
+            btpPacket.getRequestId(), description, webSocketSession, binaryMessage, waitTime
+        )
         .handle((response, error) -> {
           if (error != null) {
             // the pending response timed out or otherwise had a problem...
@@ -335,15 +340,26 @@ public abstract class AbstractBtpPlugin<PS extends BtpPluginSettings> extends Ab
           // case here. However, if an unexpected packet is encountered, we need to emit this error, but then return
           // null to the caller of this method so that no response is returned to the BTP peer.
 
-          pendingResponseManager.joinPendingResponse(incomingBtpPacket.getRequestId(), incomingBtpResponse);
+          try {
+            pendingResponseManager.joinPendingResponse(incomingBtpPacket.getRequestId(), incomingBtpResponse);
+          } catch (NoPendingResponseException e) {
+            logger.error(e.getMessage(), e);
+          }
           return Optional.empty();
         }
       }.map(incomingBtpPacket);
-    } catch (BtpRuntimeException e) {
+    } catch (Exception e) {
       logger.error(e.getMessage(), e);
-      // If anything throws a BTP Exception, then return a BTP Error on the channel...
-      final BtpError btpError = e.toBtpError(incomingBtpPacket.getRequestId());
-      return Optional.of(btpError);
+      if (BtpRuntimeException.class.isAssignableFrom(e.getClass())) {
+        logger.error(e.getMessage(), e);
+        // If anything throws a BTP Exception, then return a BTP Error on the channel...
+        final BtpError btpError = ((BtpRuntimeException) e).toBtpError(incomingBtpPacket.getRequestId());
+        return Optional.of(btpError);
+      } else if (NoPendingResponseException.class.isAssignableFrom(e.getClass())) {
+        return Optional.empty();
+      } else {
+        return Optional.empty();
+      }
     }
   }
 
@@ -596,8 +612,8 @@ public abstract class AbstractBtpPlugin<PS extends BtpPluginSettings> extends Ab
   }
 
   protected CompletableFuture<BtpResponsePacket> sendMessageWithPendingRepsonse(
-      final long requestId, final WebSocketSession webSocketSession, final WebSocketMessage webSocketMessage,
-      final Duration waitTime
+      final long requestId, final String description,
+      final WebSocketSession webSocketSession, final WebSocketMessage webSocketMessage, final Duration waitTime
   ) {
     Objects.requireNonNull(webSocketMessage);
     try {
@@ -607,7 +623,7 @@ public abstract class AbstractBtpPlugin<PS extends BtpPluginSettings> extends Ab
       // expires. Thus, we should not wait so long that we allow this packet to expire. Instead, we want to reject the
       // packet in time, so we want to make sure our process expires at least 2 seconds before the ILP packet does.
       final CompletableFuture<BtpResponsePacket> pendingResponse = this.pendingResponseManager
-          .registerPendingResponse(requestId, waitTime.getSeconds(), TimeUnit.SECONDS);
+          .registerPendingResponse(requestId, description, waitTime);
       webSocketSession.sendMessage(webSocketMessage);
       return pendingResponse;
     } catch (IOException e) {

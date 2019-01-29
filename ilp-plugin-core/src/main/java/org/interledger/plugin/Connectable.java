@@ -14,6 +14,8 @@ public interface Connectable extends Closeable {
   /**
    * <p>Connect to the remote peer.</p>
    */
+  // TODO: Add overloaded method that accepts `ConnectOptions` as a parameter.
+  // See https://github.com/interledger/rfcs/blob/master/0024-ledger-plugin-interface-2/0024-ledger-plugin-interface-2.md#class-connectoptions
   CompletableFuture<Void> connect();
 
   /**
