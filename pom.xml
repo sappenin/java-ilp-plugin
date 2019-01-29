@@ -71,11 +71,8 @@
 
   <modules>
     <module>ilp-plugin-core</module>
-    <!--<module>ilp-plugin-connections</module>-->
     <module>ilp-plugin-btp</module>
     <module>ilp-plugin-btp-springws</module>
-    <module>ilp-plugin-btp-server-spring</module>
-    <!--<module>ilp-plugin-bpp-grpc</module>-->
   </modules>
 
   <dependencyManagement>
