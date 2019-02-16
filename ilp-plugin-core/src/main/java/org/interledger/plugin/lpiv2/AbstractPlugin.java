@@ -95,6 +95,7 @@ public abstract class AbstractPlugin<T extends PluginSettings> implements Plugin
                 logger.debug("[{}] `{}` connected to `{}`", this.getPluginSettings().getPluginType(),
                     this.pluginSettings.getOperatorAddress(), this.getPluginId());
               } else {
+                this.connected.set(NOT_CONNECTED);
                 final String errorMessage = String.format("[%s] `%s` error while trying to connect to `%s`",
                     this.pluginSettings.getPluginType(),
                     this.pluginSettings.getOperatorAddress(), this.getPluginId()

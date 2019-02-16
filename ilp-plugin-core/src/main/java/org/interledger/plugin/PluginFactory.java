@@ -17,6 +17,17 @@ public interface PluginFactory {
   Plugin<?> constructPlugin(PluginSettings pluginSettings);
 
   /**
+   * Helper method to apply custom settings on a per-plugin-type basis.
+   *
+   * @param pluginSettings
+   *
+   * @return
+   */
+  default PluginSettings applyCustomSettings(PluginSettings pluginSettings) {
+    return pluginSettings;
+  }
+
+  /**
    * Determines if this factory support a particular type of {@link PluginType}.
    *
    * @param pluginType A {@link PluginType} to check compatibility for.

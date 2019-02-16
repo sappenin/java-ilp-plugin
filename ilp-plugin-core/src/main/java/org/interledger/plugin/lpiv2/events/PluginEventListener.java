@@ -26,6 +26,8 @@ public interface PluginEventListener {
    *
    * @param event A {@link PluginErrorEvent}.
    */
-  void onError(PluginErrorEvent event);
+  default void onError(PluginErrorEvent event) {
+    // No-op by default.
+  }
 
 }
